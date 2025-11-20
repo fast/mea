@@ -302,19 +302,14 @@ fn acquired_or_enqueue(
     waker: Option<&Waker>,
     enqueue_last: bool,
 ) -> bool {
-    let mut acquired = 0;
     let mut current = semaphore.permits.load(Ordering::Acquire);
     let mut lock = None;
 
-    let mut waiters = loop {
-        let mut remaining = 0;
-        let total = current.checked_add(acquired).expect("permits overflow");
-        let (next, acq) = if total >= needed {
-            let next = current - (needed - acquired);
-            (next, needed - acquired)
+    loop {
+        let (remaining, next, acquired) = if current >= needed {
+            (0, current - needed, needed)
         } else {
-            remaining = (needed - acquired) - current;
-            (0, current)
+            (needed - current, 0, current)
         };
 
         if remaining > 0 && lock.is_none() {
@@ -333,31 +328,30 @@ fn acquired_or_enqueue(
             .compare_exchange(current, next, Ordering::AcqRel, Ordering::Acquire)
         {
             Ok(_) => {
-                acquired += acq;
                 if remaining == 0 {
                     return true;
                 }
-                // SAFETY: remaining > 0, lock must be Some
-                break lock.unwrap();
+                let mut waiters = lock.take().unwrap_or_else(|| {
+                    panic!("lock must be acquired when remaining {} > 0", remaining);
+                });
+                if enqueue_last {
+                    waiters.register_waiter_to_tail(idx, || {
+                        Some(WaitNode {
+                            permits: needed - acquired,
+                            waker: waker.cloned(),
+                        })
+                    });
+                } else {
+                    waiters.register_waiter_to_head(idx, || {
+                        Some(WaitNode {
+                            permits: needed - acquired,
+                            waker: waker.cloned(),
+                        })
+                    });
+                }
+                return false;
             }
             Err(actual) => current = actual,
         }
-    };
-
-    if enqueue_last {
-        waiters.register_waiter_to_tail(idx, || {
-            Some(WaitNode {
-                permits: needed - acquired,
-                waker: waker.cloned(),
-            })
-        });
-    } else {
-        waiters.register_waiter_to_head(idx, || {
-            Some(WaitNode {
-                permits: needed - acquired,
-                waker: waker.cloned(),
-            })
-        });
     }
-    false
 }
