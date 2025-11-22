@@ -25,6 +25,12 @@ struct Foo {
     value: Arc<AtomicU32>,
 }
 
+async fn init_foo(value: Arc<AtomicU32>) -> Foo {
+    // Simulate latency in initialization
+    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    Foo { value }
+}
+
 impl Drop for Foo {
     fn drop(&mut self) {
         self.value.fetch_add(1, Ordering::Release);
@@ -45,15 +51,16 @@ async fn drop_cell() {
         assert!(once_cell.get().is_none());
         let num_drops_clone = num_drops.clone();
         once_cell
-            .get_or_init(async move || {
-                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-                Foo::from(num_drops_clone)
-            })
+            .get_or_init(move || async move { init_foo(num_drops_clone).await })
             .await;
         assert!(once_cell.get().unwrap().value.load(Ordering::Acquire) == 0);
         assert!(num_drops.load(Ordering::Acquire) == 0);
     }
     assert!(num_drops.load(Ordering::Acquire) == 1);
+}
+
+async fn identity(i: i32) -> i32 {
+    i
 }
 
 #[test]
@@ -72,7 +79,9 @@ fn multi_init() {
             let latch = latch.clone();
             let values = values.clone();
             rt.spawn(async move {
-                let result = cell_clone.get_or_init(async move || result).await;
+                let result = cell_clone
+                    .get_or_init(move || async move { identity(result).await })
+                    .await;
                 let mut values = values.lock().await;
                 values.push(*result);
                 latch.count_down();
