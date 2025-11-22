@@ -21,15 +21,16 @@
 //! # async fn main() {
 //! use std::sync::Arc;
 //!
-//! use mea::once_cell::OnceCell;
+//! use mea::once::once_cell::OnceCell;
 //!
 //! let cell = Arc::new(OnceCell::new());
 //! let cell_clone = cell.clone();
-//! let handle1 = tokio::spawn(async move { cell_clone.get_or_init(async { 1 }).await });
-//! let handle2 = tokio::spawn(async move { cell_clone.get_or_init(async { 2 }).await });
+//! let handle1 = tokio::spawn(async move { *cell_clone.get_or_init(move || async { 1 }).await });
+//! let cell_clone = cell.clone();
+//! let handle2 = tokio::spawn(async move { *cell_clone.get_or_init(move || async { 2 }).await });
 //! let result1 = handle1.await.unwrap();
 //! let result2 = handle2.await.unwrap();
-//! println("Results: {}, {}", result1, result2);
+//! println!("Results: {}, {}", result1, result2);
 //! # }
 //! ```
 //!

@@ -59,10 +59,6 @@ async fn drop_cell() {
     assert!(num_drops.load(Ordering::Acquire) == 1);
 }
 
-async fn identity(i: i32) -> i32 {
-    i
-}
-
 #[test]
 fn multi_init() {
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -79,9 +75,7 @@ fn multi_init() {
             let latch = latch.clone();
             let values = values.clone();
             rt.spawn(async move {
-                let result = cell_clone
-                    .get_or_init(move || async move { identity(result).await })
-                    .await;
+                let result = cell_clone.get_or_init(move || async move { result }).await;
                 let mut values = values.lock().await;
                 values.push(*result);
                 latch.count_down();
