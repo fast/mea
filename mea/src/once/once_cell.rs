@@ -1,0 +1,146 @@
+// Copyright 2024 tison <wander4096@gmail.com>
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! The asynchronous version of `std::cell::OnceCell`.
+//!
+//! Examples
+//!
+//! ```
+//! # #[tokio::main]
+//! # async fn main() {
+//! use std::sync::Arc;
+//!
+//! use mea::once_cell::OnceCell;
+//!
+//! let cell = Arc::new(OnceCell::new());
+//! let cell_clone = cell.clone();
+//! let handle1 = tokio::spawn(async move { cell_clone.get_or_init(async { 1 }).await });
+//! let handle2 = tokio::spawn(async move { cell_clone.get_or_init(async { 2 }).await });
+//! let result1 = handle1.await.unwrap();
+//! let result2 = handle2.await.unwrap();
+//! println("Results: {}, {}", result1, result2);
+//! # }
+//! ```
+//!
+//! The outputs must be either `Results: 1, 1` or `Results: 2, 2`, i.e. once the value is set via
+//! an asynchronous function, the value inside the `OnceCell` will be immutable.
+
+use std::cell::UnsafeCell;
+use std::future::Future;
+use std::mem::MaybeUninit;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+
+use crate::internal;
+
+/// A thread-safe cell that can be written to only once.
+pub struct OnceCell<T> {
+    value_set: AtomicBool,
+    value: UnsafeCell<MaybeUninit<T>>,
+    semaphore: internal::Semaphore,
+}
+
+impl<T> OnceCell<T> {
+    /// Creates a new empty `OnceCell`.
+    pub fn new() -> Self {
+        Self {
+            value_set: AtomicBool::new(false),
+            value: UnsafeCell::new(MaybeUninit::uninit()),
+            semaphore: internal::Semaphore::new(1),
+        }
+    }
+
+    /// Returns whether the internal value is set.
+    fn initialized(&self) -> bool {
+        self.value_set.load(Ordering::Acquire)
+    }
+
+    /// Returns the reference to the internal value or `None` if it is not set yet.
+    pub fn get(&self) -> Option<&T> {
+        if self.value_set.load(Ordering::Acquire) {
+            Some(unsafe { self.get_unchecked() })
+        } else {
+            None
+        }
+    }
+
+    /// Gets the reference to the internal value, initializing it with the provided async function
+    /// if it is not set yet.
+    pub async fn get_or_init<F, Fut>(&self, init: F) -> &T
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = T>,
+    {
+        if self.initialized() {
+            // SAFETY: We just checked that the value is initialized.
+            return unsafe { self.get_unchecked() };
+        }
+        self.semaphore.acquire(1).await;
+        let _guard = Guard {
+            semaphore: &self.semaphore,
+        };
+        if self.initialized() {
+            // Another task initialized the value while we were waiting for the semaphore.
+            // SAFETY: We just checked that the value is initialized.
+            return unsafe { self.get_unchecked() };
+        }
+
+        let value = init().await;
+        let value_ptr = self.value.get();
+        unsafe {
+            value_ptr.write(MaybeUninit::new(value));
+        }
+        // Use `store` with `Release` ordering to ensure that when loading it with `Acquire`
+        // ordering, the initialized value is visible.
+        self.value_set.store(true, Ordering::Release);
+        // SAFETY: We just initialized the value.
+        unsafe { self.get_unchecked() }
+    }
+
+    /// SAFETY: Caller must ensure that `initialized()` returns true before calling this method.
+    unsafe fn get_unchecked(&self) -> &T {
+        &*(*self.value.get()).as_ptr()
+    }
+}
+
+impl<T> Default for OnceCell<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T> Drop for OnceCell<T> {
+    fn drop(&mut self) {
+        if self.initialized() {
+            let value = self.value.get_mut().as_mut_ptr();
+            // SAFETY: We just checked that the value is initialized.
+            unsafe {
+                std::ptr::drop_in_place(value);
+            }
+        }
+    }
+}
+
+/// SAFETY: All public APIs ensure proper synchronization.
+unsafe impl<T: Sync + Send> Sync for OnceCell<T> {}
+
+struct Guard<'a> {
+    semaphore: &'a internal::Semaphore,
+}
+
+impl<'a> Drop for Guard<'a> {
+    fn drop(&mut self) {
+        self.semaphore.release(1);
+    }
+}

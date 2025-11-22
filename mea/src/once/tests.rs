@@ -1,0 +1,92 @@
+// Copyright 2024 tison <wander4096@gmail.com>
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use std::sync::atomic::AtomicU32;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+
+use tokio::sync::Mutex;
+
+use super::once_cell::OnceCell;
+use crate::latch::Latch;
+
+struct Foo {
+    value: Arc<AtomicU32>,
+}
+
+impl Drop for Foo {
+    fn drop(&mut self) {
+        self.value.fetch_add(1, Ordering::Release);
+    }
+}
+
+impl From<Arc<AtomicU32>> for Foo {
+    fn from(value: Arc<AtomicU32>) -> Self {
+        Self { value }
+    }
+}
+
+#[tokio::test]
+async fn drop_cell() {
+    let num_drops = Arc::new(AtomicU32::new(0));
+    {
+        let once_cell = OnceCell::new();
+        assert!(once_cell.get().is_none());
+        let num_drops_clone = num_drops.clone();
+        once_cell
+            .get_or_init(async move || {
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                Foo::from(num_drops_clone)
+            })
+            .await;
+        assert!(once_cell.get().unwrap().value.load(Ordering::Acquire) == 0);
+        assert!(num_drops.load(Ordering::Acquire) == 0);
+    }
+    assert!(num_drops.load(Ordering::Acquire) == 1);
+}
+
+#[test]
+fn multi_init() {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let cell = Arc::new(OnceCell::new());
+        let latch = Arc::new(Latch::new(100));
+        let values = Arc::new(Mutex::new(Vec::new()));
+        for i in 0..100 {
+            let cell_clone = cell.clone();
+            let result = i;
+            let latch = latch.clone();
+            let values = values.clone();
+            rt.spawn(async move {
+                let result = cell_clone.get_or_init(async move || result).await;
+                let mut values = values.lock().await;
+                values.push(*result);
+                latch.count_down();
+            });
+        }
+        latch.wait().await;
+        let cell_value = cell.get().unwrap();
+        println!("Cell value: {}", *cell_value);
+        for (index, value) in values.lock().await.iter().enumerate() {
+            assert_eq!(
+                *value, *cell_value,
+                "mismatch at index {}, expected: {}, actual: {}",
+                index, *cell_value, *value
+            );
+        }
+    });
+}

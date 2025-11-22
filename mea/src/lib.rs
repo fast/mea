@@ -70,6 +70,7 @@ pub mod condvar;
 pub mod latch;
 pub mod mpsc;
 pub mod mutex;
+pub mod once;
 pub mod oneshot;
 pub mod rwlock;
 pub mod semaphore;
@@ -93,6 +94,7 @@ mod tests {
     use crate::mpsc;
     use crate::mutex::Mutex;
     use crate::mutex::MutexGuard;
+    use crate::once::once_cell::OnceCell;
     use crate::oneshot;
     use crate::rwlock::RwLock;
     use crate::rwlock::RwLockReadGuard;
@@ -108,6 +110,7 @@ mod tests {
         fn do_assert_send_and_sync<T: Send + Sync>() {}
         do_assert_send_and_sync::<Barrier>();
         do_assert_send_and_sync::<Condvar>();
+        do_assert_send_and_sync::<OnceCell<u32>>();
         do_assert_send_and_sync::<Latch>();
         do_assert_send_and_sync::<Semaphore>();
         do_assert_send_and_sync::<ShutdownSend>();
