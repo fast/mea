@@ -27,12 +27,14 @@ fn notify_all() {
         let mut tasks: Vec<JoinHandle<()>> = Vec::new();
         let pair = Arc::new((Mutex::new(0u32), Condvar::new()));
 
-        for _ in 0..10 {
+        {
             let pair = pair.clone();
             tasks.push(tokio::spawn(async move {
+                println!("I have start!");
                 let (m, c) = &*pair;
                 let mut count = m.lock().await;
                 while *count == 0 {
+                    println!("I am waiting on it");
                     count = c.wait(count).await;
                 }
                 *count += 1;
@@ -40,7 +42,9 @@ fn notify_all() {
         }
 
         // Give some time for tasks to start up
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        println!("HERE 1!");
 
         let (m, c) = &*pair;
         {
@@ -49,10 +53,64 @@ fn notify_all() {
             c.notify_all();
         }
 
+        println!("HERE 2!");
+
         for t in tasks {
             t.await.unwrap();
         }
+
+        println!("HERE 3!");
+
         let count = m.lock().await;
-        assert_eq!(11, *count);
+        assert_eq!(2, *count);
+    });
+}
+
+#[test]
+fn notify_all_local_runtime() {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let mut tasks: Vec<JoinHandle<()>> = Vec::new();
+        let pair = Arc::new((Mutex::new(0u32), Condvar::new()));
+
+        {
+            let pair = pair.clone();
+            tasks.push(tokio::spawn(async move {
+                println!("I have start!");
+                let (m, c) = &*pair;
+                let mut count = m.lock().await;
+                while *count == 0 {
+                    println!("I am waiting on it");
+                    count = c.wait(count).await;
+                }
+                *count += 1;
+            }));
+        }
+
+        // Give some time for tasks to start up
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        println!("HERE 1!");
+
+        let (m, c) = &*pair;
+        {
+            let mut count = m.lock().await;
+            *count += 1;
+            c.notify_all();
+        }
+
+        println!("HERE 2!");
+
+        for t in tasks {
+            t.await.unwrap();
+        }
+
+        println!("HERE 3!");
+
+        let count = m.lock().await;
+        assert_eq!(2, *count);
     });
 }

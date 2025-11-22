@@ -107,6 +107,10 @@ impl Condvar {
     pub async fn wait<'a, T>(&self, guard: MutexGuard<'a, T>) -> MutexGuard<'a, T> {
         let mutex = mutex::guard_lock(&guard);
         drop(guard);
+
+        // sync point
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        
         self.s.acquire(1).await;
         mutex.lock().await
     }
