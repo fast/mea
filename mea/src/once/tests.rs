@@ -67,16 +67,22 @@ fn multi_init() {
         .unwrap();
     rt.block_on(async {
         let cell = Arc::new(OnceCell::new());
-        let latch = Arc::new(Latch::new(100));
-        let values = Arc::new(Mutex::new(Vec::new()));
-        for i in 0..100 {
+        const N: usize = 100;
+        let latch = Arc::new(Latch::new(N as u32));
+        let values = Arc::new(Mutex::new(vec![0; N]));
+
+        for i in 0..N {
             let cell_clone = cell.clone();
-            let result = i;
             let latch = latch.clone();
             let values = values.clone();
             rt.spawn(async move {
-                let result = cell_clone.get_or_init(move || async move { result }).await;
+                let result = cell_clone
+                    .get_or_init(move || async move { i + 1000 })
+                    .await;
                 let mut values = values.lock().await;
+                if let Some(item) = values.get_mut(i) {
+                    *item = *result;
+                }
                 values.push(*result);
                 latch.count_down();
             });
