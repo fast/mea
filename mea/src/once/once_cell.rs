@@ -55,6 +55,13 @@ unsafe impl<T: Sync + Send> Sync for OnceCell<T> {}
 // SAFETY: OnceCell<T> can be sent between threads as long as T is Send.
 unsafe impl<T: Send> Send for OnceCell<T> {}
 
+
+impl<T> Default for OnceCell<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> OnceCell<T> {
     /// Creates a new empty `OnceCell`.
     pub const fn new() -> Self {
@@ -111,13 +118,11 @@ impl<T> OnceCell<T> {
 
         let value = init().await;
         let value_ptr = self.value.get();
-        unsafe {
-            value_ptr.write(MaybeUninit::new(value));
-        }
+        unsafe { value_ptr.write(MaybeUninit::new(value)) };
         // Use `store` with `Release` ordering to ensure that when loading it with `Acquire`
         // ordering, the initialized value is visible.
         self.value_set.store(true, Ordering::Release);
-        // SAFETY: We just initialized the value.
+        // SAFETY: value initialized one line above
         unsafe { self.get_unchecked() }
     }
 
@@ -127,20 +132,12 @@ impl<T> OnceCell<T> {
     }
 }
 
-impl<T> Default for OnceCell<T> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl<T> Drop for OnceCell<T> {
     fn drop(&mut self) {
         if self.initialized() {
             let value = self.value.get_mut().as_mut_ptr();
-            // SAFETY: We just checked that the value is initialized.
-            unsafe {
-                std::ptr::drop_in_place(value);
-            }
+            // SAFETY: the value is initialized
+            unsafe { std::ptr::drop_in_place(value) };
         }
     }
 }

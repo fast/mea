@@ -143,7 +143,7 @@ impl<T> RwLock<T> {
     ///
     /// let rwlock = RwLock::new(5);
     /// ```
-    pub fn new(t: T) -> RwLock<T> {
+    pub const fn new(t: T) -> RwLock<T> {
         // large enough while not touch the edge
         RwLock::with_max_readers(t, NonZeroUsize::new(usize::MAX >> 1).unwrap())
     }
