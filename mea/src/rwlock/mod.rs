@@ -58,6 +58,7 @@
 //!     *w += 1;
 //!     assert_eq!(*w, 6);
 //! } // write lock is dropped here
+//!
 //! # }
 //! ```
 //!

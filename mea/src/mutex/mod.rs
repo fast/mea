@@ -48,6 +48,7 @@
 //!
 //! let final_value = mutex.lock().await;
 //! assert_eq!(*final_value, 3); // 0 + 1 + 2
+//!
 //! #  }
 //! ```
 //!

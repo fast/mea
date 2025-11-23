@@ -82,9 +82,9 @@ use std::mem::MaybeUninit;
 use std::pin::Pin;
 use std::ptr;
 use std::ptr::NonNull;
-use std::sync::atomic::fence;
 use std::sync::atomic::AtomicU8;
 use std::sync::atomic::Ordering;
+use std::sync::atomic::fence;
 use std::task::Context;
 use std::task::Poll;
 use std::task::Waker;
@@ -553,24 +553,28 @@ impl<T> Channel<T> {
 
     #[inline(always)]
     unsafe fn message(&self) -> &MaybeUninit<T> {
-        &*self.message.get()
+        unsafe { &*self.message.get() }
     }
 
     #[inline(always)]
     unsafe fn write_message(&self, message: T) {
-        let slot = &mut *self.message.get();
-        slot.as_mut_ptr().write(message);
+        unsafe {
+            let slot = &mut *self.message.get();
+            slot.as_mut_ptr().write(message);
+        }
     }
 
     #[inline(always)]
     unsafe fn drop_message(&self) {
-        let slot = &mut *self.message.get();
-        slot.assume_init_drop();
+        unsafe {
+            let slot = &mut *self.message.get();
+            slot.assume_init_drop();
+        }
     }
 
     #[inline(always)]
     unsafe fn take_message(&self) -> T {
-        ptr::read(self.message.get()).assume_init()
+        unsafe { ptr::read(self.message.get()).assume_init() }
     }
 
     /// # Safety
@@ -578,68 +582,76 @@ impl<T> Channel<T> {
     /// * The `waker` field must not have a waker stored when calling this method.
     /// * The `state` must not be in the RECEIVING state when calling this method.
     unsafe fn write_waker(&self, waker: Waker) -> Poll<Result<T, RecvError>> {
-        // Write the waker instance to the channel.
-        //
-        // SAFETY: we are not yet in the RECEIVING state, meaning that the sender will not
-        // try to access the waker until it sees the state set to RECEIVING below.
-        let slot = &mut *self.waker.get();
-        slot.as_mut_ptr().write(waker);
+        unsafe {
+            // Write the waker instance to the channel.
+            //
+            // SAFETY: we are not yet in the RECEIVING state, meaning that the sender will not
+            // try to access the waker until it sees the state set to RECEIVING below.
+            let slot = &mut *self.waker.get();
+            slot.as_mut_ptr().write(waker);
 
-        // ORDERING: we use release ordering on success so the sender can synchronize with
-        // our write of the waker. We use relaxed ordering on failure since the sender does
-        // not need to synchronize with our write and the individual match arms handle any
-        // additional synchronization
-        match self
-            .state
-            .compare_exchange(EMPTY, RECEIVING, Ordering::Release, Ordering::Relaxed)
-        {
-            // We stored our waker, now we return and let the sender wake us up.
-            Ok(_) => Poll::Pending,
-            // The sender sent the message while we prepared to await.
-            // We take the message and mark the channel disconnected.
-            Err(MESSAGE) => {
-                // ORDERING: Synchronize with writing message. This branch is unlikely to be taken,
-                // so it is likely more efficient to use a fence here instead of AcqRel ordering on
-                // the compare_exchange operation.
-                fence(Ordering::Acquire);
+            // ORDERING: we use release ordering on success so the sender can synchronize with
+            // our write of the waker. We use relaxed ordering on failure since the sender does
+            // not need to synchronize with our write and the individual match arms handle any
+            // additional synchronization
+            match self.state.compare_exchange(
+                EMPTY,
+                RECEIVING,
+                Ordering::Release,
+                Ordering::Relaxed,
+            ) {
+                // We stored our waker, now we return and let the sender wake us up.
+                Ok(_) => Poll::Pending,
+                // The sender sent the message while we prepared to await.
+                // We take the message and mark the channel disconnected.
+                Err(MESSAGE) => {
+                    // ORDERING: Synchronize with writing message. This branch is unlikely to be
+                    // taken, so it is likely more efficient to use a fence here
+                    // instead of AcqRel ordering on the compare_exchange
+                    // operation.
+                    fence(Ordering::Acquire);
 
-                // SAFETY: we started in the EMPTY state and the sender switched us to the
-                // MESSAGE state. This means that it did not take the waker, so we're
-                // responsible for dropping it.
-                self.drop_waker();
+                    // SAFETY: we started in the EMPTY state and the sender switched us to the
+                    // MESSAGE state. This means that it did not take the waker, so we're
+                    // responsible for dropping it.
+                    self.drop_waker();
 
-                // ORDERING: sender does not exist, so this update only needs to be visible to us.
-                self.state.store(DISCONNECTED, Ordering::Relaxed);
+                    // ORDERING: sender does not exist, so this update only needs to be visible to
+                    // us.
+                    self.state.store(DISCONNECTED, Ordering::Relaxed);
 
-                // SAFETY: The MESSAGE state tells us there is a correctly initialized message.
-                Poll::Ready(Ok(self.take_message()))
+                    // SAFETY: The MESSAGE state tells us there is a correctly initialized message.
+                    Poll::Ready(Ok(self.take_message()))
+                }
+                // The sender was dropped before sending anything while we prepared to await.
+                Err(DISCONNECTED) => {
+                    // SAFETY: we started in the EMPTY state and the sender switched us to the
+                    // DISCONNECTED state. This means that it did not take the waker, so we are
+                    // responsible for dropping it.
+                    self.drop_waker();
+                    Poll::Ready(Err(RecvError(())))
+                }
+                Err(state) => unreachable!("unexpected channel state: {}", state),
             }
-            // The sender was dropped before sending anything while we prepared to await.
-            Err(DISCONNECTED) => {
-                // SAFETY: we started in the EMPTY state and the sender switched us to the
-                // DISCONNECTED state. This means that it did not take the waker, so we are
-                // responsible for dropping it.
-                self.drop_waker();
-                Poll::Ready(Err(RecvError(())))
-            }
-            Err(state) => unreachable!("unexpected channel state: {}", state),
         }
     }
 
     #[inline(always)]
     unsafe fn drop_waker(&self) {
-        let slot = &mut *self.waker.get();
-        slot.assume_init_drop();
+        unsafe {
+            let slot = &mut *self.waker.get();
+            slot.assume_init_drop();
+        }
     }
 
     #[inline(always)]
     unsafe fn take_waker(&self) -> Waker {
-        ptr::read(self.waker.get()).assume_init()
+        unsafe { ptr::read(self.waker.get()).assume_init() }
     }
 }
 
 unsafe fn dealloc<T>(channel: NonNull<Channel<T>>) {
-    drop(Box::from_raw(channel.as_ptr()))
+    unsafe { drop(Box::from_raw(channel.as_ptr())) }
 }
 
 /// An error returned when trying to send on a closed channel. Returned from

@@ -213,11 +213,7 @@ impl<'a, T: ?Sized> RwLockWriteGuard<'a, T> {
     ///     RwLockWriteGuard::filter_map(
     ///         guard,
     ///         |foo| {
-    ///             if foo.a > 10 {
-    ///                 Some(&mut foo.a)
-    ///             } else {
-    ///                 None
-    ///             }
+    ///             if foo.a > 10 { Some(&mut foo.a) } else { None }
     ///         },
     ///     )
     ///     .expect("should have mapped");

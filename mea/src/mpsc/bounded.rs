@@ -16,12 +16,12 @@
 //! tasks with backpressure control.
 
 use std::fmt;
-use std::future::poll_fn;
 use std::future::Future;
+use std::future::poll_fn;
 use std::pin::pin;
+use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 use std::task::Waker;
@@ -29,9 +29,9 @@ use std::task::Waker;
 use crate::atomicbox::AtomicOptionBox;
 use crate::internal::Acquire;
 use crate::internal::Semaphore;
-use crate::mpsc::error::TrySendError;
 use crate::mpsc::SendError;
 use crate::mpsc::TryRecvError;
+use crate::mpsc::error::TrySendError;
 
 /// Creates a bounded mpsc channel for communicating between asynchronous
 /// tasks with backpressure.
@@ -143,7 +143,7 @@ impl<T> BoundedSender<T> {
                     value = match self.sender.try_send(value) {
                         Ok(()) => return Poll::Ready(Ok(())),
                         Err(TrySendError::Disconnected(value)) => {
-                            return Poll::Ready(Err(SendError::new(value)))
+                            return Poll::Ready(Err(SendError::new(value)));
                         }
                         Err(TrySendError::Full(value)) => value,
                     };
@@ -183,8 +183,8 @@ impl<T> BoundedSender<T> {
     /// ```
     /// # #[tokio::main]
     /// # async fn main() {
-    /// use mea::mpsc::bounded;
     /// use mea::mpsc::TrySendError;
+    /// use mea::mpsc::bounded;
     /// let (tx, mut rx) = bounded::<i32>(1);
     ///
     /// tx.try_send(1).unwrap();

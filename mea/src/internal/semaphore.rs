@@ -257,8 +257,7 @@ impl Acquire<'_> {
                 let mut ready = false;
                 waiters.with_mut(*idx, |node| {
                     if node.permits > 0 {
-                        let update_waker =
-                            node.waker.as_ref().map_or(true, |w| !w.will_wake(waker));
+                        let update_waker = node.waker.as_ref().is_none_or(|w| !w.will_wake(waker));
                         if update_waker {
                             node.waker = Some(waker.clone());
                         }

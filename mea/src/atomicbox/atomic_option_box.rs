@@ -48,10 +48,12 @@ fn into_ptr<T>(value: Option<Box<T>>) -> *mut T {
 }
 
 unsafe fn from_ptr<T>(ptr: *mut T) -> Option<Box<T>> {
-    if ptr.is_null() {
-        None
-    } else {
-        Some(Box::from_raw(ptr))
+    unsafe {
+        if ptr.is_null() {
+            None
+        } else {
+            Some(Box::from_raw(ptr))
+        }
     }
 }
 
@@ -233,8 +235,8 @@ impl<T> fmt::Debug for AtomicOptionBox<T> {
 #[cfg(test)]
 mod tests {
     use core::sync::atomic::Ordering;
-    use std::sync::atomic::AtomicUsize;
     use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
 
     use super::*;
 
