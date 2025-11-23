@@ -83,7 +83,6 @@ fn multi_init() {
                 if let Some(item) = values.get_mut(i) {
                     *item = *result;
                 }
-                values.push(*result);
                 latch.count_down();
             });
         }

@@ -14,7 +14,7 @@
 
 //! The asynchronous version of `std::cell::OnceCell`.
 //!
-//! Examples
+//! # Examples
 //!
 //! ```
 //! # #[tokio::main]
@@ -51,6 +51,12 @@ pub struct OnceCell<T> {
     value: UnsafeCell<MaybeUninit<T>>,
     semaphore: internal::Semaphore,
 }
+
+// SAFETY: OnceCell<T> can be shared between threads as long as T is Sync + Send.
+unsafe impl<T: Sync + Send> Sync for OnceCell<T> {}
+
+// SAFETY: OnceCell<T> can be sent between threads as long as T is Send.
+unsafe impl<T: Send> Send for OnceCell<T> {}
 
 impl<T> OnceCell<T> {
     /// Creates a new empty `OnceCell`.
@@ -109,7 +115,7 @@ impl<T> OnceCell<T> {
         unsafe { self.get_unchecked() }
     }
 
-    /// SAFETY: Caller must ensure that `initialized()` returns true before calling this method.
+    // SAFETY: Caller must ensure that `initialized()` returns true before calling this method.
     unsafe fn get_unchecked(&self) -> &T {
         &*(*self.value.get()).as_ptr()
     }
@@ -132,9 +138,6 @@ impl<T> Drop for OnceCell<T> {
         }
     }
 }
-
-/// SAFETY: All public APIs ensure proper synchronization.
-unsafe impl<T: Sync + Send> Sync for OnceCell<T> {}
 
 struct Guard<'a> {
     semaphore: &'a internal::Semaphore,
