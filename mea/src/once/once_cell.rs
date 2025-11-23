@@ -126,7 +126,7 @@ impl<T> OnceCell<T> {
 
     // SAFETY: Caller must ensure that `initialized()` returns true before calling this method.
     unsafe fn get_unchecked(&self) -> &T {
-        &*(*self.value.get()).as_ptr()
+        unsafe { &*(*self.value.get()).as_ptr() }
     }
 }
 
