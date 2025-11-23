@@ -82,8 +82,13 @@ impl<T> OnceCell<T> {
         }
     }
 
-    /// Gets the reference to the internal value, initializing it with the provided async function
-    /// if it is not set yet.
+    /// Gets the reference to the internal value, initializing it with the provided asynchronous
+    /// function if it is not set yet.
+    ///
+    /// If some other task is currently working on initializing the `OnceCell`, this call will wait
+    /// for that other task to finish, then return the value that the other task produced.
+    ///
+    /// This will deadlock if `init` tries to initialize the cell recursively.
     pub async fn get_or_init<F, Fut>(&self, init: F) -> &T
     where
         F: FnOnce() -> Fut,
