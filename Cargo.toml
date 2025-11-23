@@ -17,12 +17,12 @@ members = ["mea", "xtask"]
 resolver = "2"
 
 [workspace.package]
-edition = "2021"
+edition = "2024"
 homepage = "https://github.com/fast/mea"
 license = "Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/fast/mea"
-rust-version = "1.80.0"
+rust-version = "1.85.0"
 
 [workspace.lints.rust]
 unknown_lints = "deny"
