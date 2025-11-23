@@ -13,8 +13,9 @@
 // limitations under the License.
 
 use std::sync::Arc;
-use std::sync::atomic::AtomicU32;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use tokio::sync::Mutex;
 
@@ -22,41 +23,44 @@ use super::once_cell::OnceCell;
 use crate::latch::Latch;
 
 struct Foo {
-    value: Arc<AtomicU32>,
+    value: Arc<AtomicBool>,
 }
 
-async fn init_foo(value: Arc<AtomicU32>) -> Foo {
-    // Simulate latency in initialization
-    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-    Foo { value }
+impl Foo {
+    async fn new(value: Arc<AtomicBool>) -> Self {
+        // simulate some async initialization work
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        Foo { value }
+    }
+
+    fn value(&self) -> bool {
+        self.value.load(Ordering::Acquire)
+    }
 }
 
 impl Drop for Foo {
     fn drop(&mut self) {
-        self.value.fetch_add(1, Ordering::Release);
-    }
-}
-
-impl From<Arc<AtomicU32>> for Foo {
-    fn from(value: Arc<AtomicU32>) -> Self {
-        Self { value }
+        self.value.store(true, Ordering::Release);
     }
 }
 
 #[tokio::test]
 async fn drop_cell() {
-    let num_drops = Arc::new(AtomicU32::new(0));
+    let dropped = Arc::new(AtomicBool::new(false));
+
     {
-        let once_cell = OnceCell::new();
-        assert!(once_cell.get().is_none());
-        let num_drops_clone = num_drops.clone();
-        once_cell
-            .get_or_init(move || async move { init_foo(num_drops_clone).await })
-            .await;
-        assert!(once_cell.get().unwrap().value.load(Ordering::Acquire) == 0);
-        assert!(num_drops.load(Ordering::Acquire) == 0);
+        let cell = OnceCell::new();
+        assert!(cell.get().is_none());
+
+        let state = dropped.clone();
+        cell.get_or_init(|| async { Foo::new(state).await }).await;
+
+        let foo = cell.get().unwrap();
+        assert!(!foo.value());
+        assert!(!dropped.load(Ordering::Acquire));
     }
-    assert!(num_drops.load(Ordering::Acquire) == 1);
+
+    assert!(dropped.load(Ordering::Acquire));
 }
 
 #[test]
@@ -65,54 +69,53 @@ fn multi_init() {
         .worker_threads(4)
         .build()
         .unwrap();
+
+    static CELL: OnceCell<usize> = OnceCell::new();
+
     rt.block_on(async {
-        let cell = Arc::new(OnceCell::new());
         const N: usize = 100;
+
         let latch = Arc::new(Latch::new(N as u32));
         let values = Arc::new(Mutex::new(vec![0; N]));
 
         for i in 0..N {
-            let cell_clone = cell.clone();
             let latch = latch.clone();
             let values = values.clone();
             rt.spawn(async move {
-                let result = cell_clone
-                    .get_or_init(move || async move { i + 1000 })
-                    .await;
+                let result = CELL.get_or_init(move || async move { i + 1000 }).await;
                 let mut values = values.lock().await;
-                if let Some(item) = values.get_mut(i) {
-                    *item = *result;
-                }
+                values[i] = *result;
                 latch.count_down();
             });
         }
+
         latch.wait().await;
-        let cell_value = cell.get().unwrap();
-        println!("Cell value: {}", *cell_value);
+        let cell_value = CELL.get().unwrap();
         for (index, value) in values.lock().await.iter().enumerate() {
-            assert_eq!(
-                *value, *cell_value,
-                "mismatch at index {}, expected: {}, actual: {}",
-                index, *cell_value, *value
-            );
+            assert_eq!(*value, *cell_value, "mismatch at index {index}");
         }
     });
 }
 
 #[tokio::test]
 async fn init_cancelled() {
-    let cell = OnceCell::new();
-    let value_future = cell.get_or_init(|| async {
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-        1
+    static CELL: OnceCell<u8> = OnceCell::new();
+
+    let handle1 = tokio::spawn(async {
+        let fut = CELL.get_or_init(|| async {
+            tokio::time::sleep(Duration::from_millis(1000)).await;
+            1
+        });
+        let timeout = tokio::time::timeout(Duration::from_millis(1), fut).await;
+        assert!(timeout.is_err());
     });
-    let success_value_future = cell.get_or_init(|| async { 2 });
-    let timeout_future = tokio::time::timeout(std::time::Duration::from_millis(1), value_future);
-    tokio::select! {
-        result = timeout_future => {
-            assert!(result.is_err(), "Expected timeout error");
-        }
-    };
-    let value = success_value_future.await;
-    assert!(*value == 2, "Expected value to be 2, got {}", *value);
+
+    let handle2 = tokio::spawn(async {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let value = CELL.get_or_init(|| async { 2 }).await;
+        assert_eq!(*value, 2);
+    });
+
+    handle1.await.unwrap();
+    handle2.await.unwrap();
 }

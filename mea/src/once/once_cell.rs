@@ -55,7 +55,6 @@ unsafe impl<T: Sync + Send> Sync for OnceCell<T> {}
 // SAFETY: OnceCell<T> can be sent between threads as long as T is Send.
 unsafe impl<T: Send> Send for OnceCell<T> {}
 
-
 impl<T> Default for OnceCell<T> {
     fn default() -> Self {
         Self::new()
