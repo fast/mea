@@ -46,6 +46,8 @@
 //! ```
 
 use std::fmt;
+use std::future::poll_fn;
+use std::task::Poll;
 
 use crate::internal;
 use crate::mutex;
@@ -106,8 +108,10 @@ impl Condvar {
     /// However, as a best practice avoid using with multiple mutexes.
     pub async fn wait<'a, T>(&self, guard: MutexGuard<'a, T>) -> MutexGuard<'a, T> {
         let mutex = mutex::guard_lock(&guard);
+        // register waiter while holding lock
+        let acquire = poll_fn(|cx| Poll::Ready(self.s.poll_acquire_once(1, cx))).await;
         drop(guard);
-        self.s.acquire(1).await;
+        acquire.await;
         mutex.lock().await
     }
 
@@ -117,8 +121,10 @@ impl Condvar {
     /// However, as a best practice avoid using with multiple mutexes.
     pub async fn wait_owned<T>(&self, guard: OwnedMutexGuard<T>) -> OwnedMutexGuard<T> {
         let mutex = mutex::owned_guard_lock(&guard);
+        // register waiter while holding lock
+        let acquire = poll_fn(|cx| Poll::Ready(self.s.poll_acquire_once(1, cx))).await;
         drop(guard);
-        self.s.acquire(1).await;
+        acquire.await;
         mutex.lock_owned().await
     }
 

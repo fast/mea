@@ -124,6 +124,20 @@ impl Semaphore {
         }
     }
 
+    /// Returns a future that is resolved when acquired `n` permits from the semaphore.
+    /// This function will attempt to poll once, registering a waiter into the wait queue.
+    pub(crate) fn poll_acquire_once(&self, n: usize, cx: &mut Context<'_>) -> Acquire<'_> {
+        let mut fut = Acquire {
+            permits: n,
+            index: None,
+            semaphore: self,
+            done: false,
+        };
+        // try enqueue
+        let _ = Pin::new(&mut fut).poll(cx);
+        fut
+    }
+
     /// Adds `n` permits to the semaphore.
     pub(crate) fn release(&self, n: usize) {
         if n != 0 {
