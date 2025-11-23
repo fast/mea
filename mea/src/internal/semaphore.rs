@@ -39,7 +39,7 @@ struct WaitNode {
 }
 
 impl Semaphore {
-    pub(crate) fn new(permits: usize) -> Self {
+    pub(crate) const fn new(permits: usize) -> Self {
         Self {
             permits: AtomicUsize::new(permits),
             waiters: Mutex::new(WaitList::new()),

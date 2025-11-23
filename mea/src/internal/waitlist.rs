@@ -20,7 +20,8 @@ use slab::Slab;
 /// * `guard`'s `prev` points to the last node (regular tail).
 #[derive(Debug)]
 pub(crate) struct WaitList<T> {
-    guard: usize,
+    // if None, the list is uninitialized and empty
+    guard: Option<usize>,
     nodes: Slab<Node<T>>,
 }
 
@@ -32,16 +33,28 @@ struct Node<T> {
 }
 
 impl<T> WaitList<T> {
-    pub(crate) fn new() -> Self {
-        let mut nodes = Slab::new();
-        let first = nodes.vacant_entry();
+    /// Ensures the wait list is initialized, returning the guard index.
+    fn ensure_init(&mut self) -> usize {
+        if let Some(guard) = self.guard {
+            return guard;
+        }
+
+        let first = self.nodes.vacant_entry();
         let guard = first.key();
         first.insert(Node {
             prev: guard,
             next: guard,
             stat: None,
         });
-        Self { guard, nodes }
+        self.guard = Some(guard);
+        guard
+    }
+
+    pub(crate) const fn new() -> Self {
+        Self {
+            guard: None,
+            nodes: Slab::new(),
+        }
     }
 
     /// Registers a waiter to the head of the wait list.
@@ -56,15 +69,16 @@ impl<T> WaitList<T> {
     ) {
         assert!(idx.is_none());
 
+        let guard = self.ensure_init();
         let stat = f();
-        let prev_head = self.nodes[self.guard].next;
+        let prev_head = self.nodes[guard].next;
         let new_node = Node {
-            prev: self.guard,
+            prev: guard,
             next: prev_head,
             stat,
         };
         let new_key = self.nodes.insert(new_node);
-        self.nodes[self.guard].next = new_key;
+        self.nodes[guard].next = new_key;
         self.nodes[prev_head].prev = new_key;
         *idx = Some(new_key);
     }
@@ -81,15 +95,16 @@ impl<T> WaitList<T> {
     ) {
         assert!(idx.is_none());
 
+        let guard = self.ensure_init();
         let stat = f();
-        let prev_tail = self.nodes[self.guard].prev;
+        let prev_tail = self.nodes[guard].prev;
         let new_node = Node {
             prev: prev_tail,
-            next: self.guard,
+            next: guard,
             stat,
         };
         let new_key = self.nodes.insert(new_node);
-        self.nodes[self.guard].prev = new_key;
+        self.nodes[guard].prev = new_key;
         self.nodes[prev_tail].next = new_key;
         *idx = Some(new_key);
     }
@@ -100,10 +115,13 @@ impl<T> WaitList<T> {
         idx: usize,
         f: impl FnOnce(&mut T) -> bool,
     ) -> Option<&mut T> {
-        assert_ne!(idx, self.guard);
+        // SAFETY: the wait list must be initialized before any waiter can be registered
+        let guard = self.guard.expect("wait list is uninitialized");
 
-        // SAFETY: `idx` is a valid key + non-guard node always has `Some(stat)`
+        assert_ne!(idx, guard);
+
         fn retrieve_stat<T>(node: &mut Node<T>) -> &mut T {
+            // SAFETY: `idx` is a valid key + non-guard node always has `Some(stat)`
             node.stat.as_mut().unwrap()
         }
 
@@ -122,8 +140,9 @@ impl<T> WaitList<T> {
 
     /// Removes the first waiter from the wait list.
     pub(crate) fn remove_first_waiter(&mut self, f: impl FnOnce(&mut T) -> bool) -> Option<&mut T> {
-        let first = self.nodes[self.guard].next;
-        if first != self.guard {
+        let guard = self.guard?;
+        let first = self.nodes[guard].next;
+        if first != guard {
             self.remove_waiter(first, f)
         } else {
             None
@@ -132,7 +151,8 @@ impl<T> WaitList<T> {
 
     /// Returns `true` if the wait list is empty.
     pub(crate) fn is_empty(&self) -> bool {
-        self.nodes[self.guard].next == self.guard
+        self.guard
+            .is_none_or(|guard| self.nodes[guard].next == guard)
     }
 
     pub(crate) fn with_mut(&mut self, idx: usize, drop: impl FnOnce(&mut T) -> bool) {

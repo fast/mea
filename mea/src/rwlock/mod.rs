@@ -161,7 +161,7 @@ impl<T> RwLock<T> {
     /// let max_readers = NonZeroUsize::new(1024).expect("max_readers must be non-zero");
     /// let rwlock = RwLock::with_max_readers(5, max_readers);
     /// ```
-    pub fn with_max_readers(t: T, max_readers: NonZeroUsize) -> RwLock<T> {
+    pub const fn with_max_readers(t: T, max_readers: NonZeroUsize) -> RwLock<T> {
         let s = Semaphore::new(max_readers.get());
         let c = UnsafeCell::new(t);
         RwLock { max_readers, c, s }

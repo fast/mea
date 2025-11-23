@@ -85,7 +85,7 @@ impl Condvar {
     ///
     /// let cvar = Condvar::new();
     /// ```
-    pub fn new() -> Condvar {
+    pub const fn new() -> Condvar {
         Condvar {
             s: internal::Semaphore::new(0),
         }

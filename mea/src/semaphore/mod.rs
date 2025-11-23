@@ -103,7 +103,7 @@ impl Semaphore {
     ///
     /// let sem = Semaphore::new(5); // Creates a semaphore with 5 permits
     /// ```
-    pub fn new(permits: usize) -> Self {
+    pub const fn new(permits: usize) -> Self {
         Self {
             s: internal::Semaphore::new(permits),
         }

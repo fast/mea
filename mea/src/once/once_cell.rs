@@ -12,31 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The asynchronous version of `std::cell::OnceCell`.
-//!
-//! # Examples
-//!
-//! ```
-//! # #[tokio::main]
-//! # async fn main() {
-//! use std::sync::Arc;
-//!
-//! use mea::once::once_cell::OnceCell;
-//!
-//! let cell = Arc::new(OnceCell::new());
-//! let cell_clone = cell.clone();
-//! let handle1 = tokio::spawn(async move { *cell_clone.get_or_init(move || async { 1 }).await });
-//! let cell_clone = cell.clone();
-//! let handle2 = tokio::spawn(async move { *cell_clone.get_or_init(move || async { 2 }).await });
-//! let result1 = handle1.await.unwrap();
-//! let result2 = handle2.await.unwrap();
-//! println!("Results: {}, {}", result1, result2);
-//! # }
-//! ```
-//!
-//! The outputs must be either `Results: 1, 1` or `Results: 2, 2`, i.e. once the value is set via
-//! an asynchronous function, the value inside the `OnceCell` will be immutable.
-
 use std::cell::UnsafeCell;
 use std::future::Future;
 use std::mem::MaybeUninit;
@@ -45,7 +20,29 @@ use std::sync::atomic::Ordering;
 
 use crate::internal;
 
-/// A thread-safe cell that can be written to only once.
+/// A thread-safe cell which can nominally be written to only once.
+///
+/// # Examples
+///
+/// ```
+/// # #[tokio::main]
+/// # async fn main() {
+/// use std::sync::Arc;
+///
+/// use mea::once::OnceCell;
+///
+/// static CELL: OnceCell<u8> = OnceCell::new();
+///
+/// let handle1 = tokio::spawn(async { CELL.get_or_init(move || async { 1 }).await });
+/// let handle2 = tokio::spawn(async { CELL.get_or_init(move || async { 2 }).await });
+/// let result1 = handle1.await.unwrap();
+/// let result2 = handle2.await.unwrap();
+/// println!("Results: {}, {}", result1, result2);
+/// # }
+/// ```
+///
+/// The outputs must be either `Results: 1, 1` or `Results: 2, 2`, i.e. once the value is set via
+/// an asynchronous function, the value inside the `OnceCell` will be immutable.
 pub struct OnceCell<T> {
     value_set: AtomicBool,
     value: UnsafeCell<MaybeUninit<T>>,
@@ -60,7 +57,7 @@ unsafe impl<T: Send> Send for OnceCell<T> {}
 
 impl<T> OnceCell<T> {
     /// Creates a new empty `OnceCell`.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             value_set: AtomicBool::new(false),
             value: UnsafeCell::new(MaybeUninit::uninit()),

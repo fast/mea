@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The asynchronous version of `std::cell::OnceCell`.
-pub mod once_cell;
+//! Asynchronous primitives for one-time initialization.
+
+mod once_cell;
+pub use self::once_cell::OnceCell;
+
 #[cfg(test)]
 mod tests;

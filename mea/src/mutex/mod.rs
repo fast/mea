@@ -115,7 +115,7 @@ impl<T> Mutex<T> {
     ///
     /// let mutex = Mutex::new(5);
     /// ```
-    pub fn new(t: T) -> Self {
+    pub const fn new(t: T) -> Self {
         let s = internal::Semaphore::new(1);
         let c = UnsafeCell::new(t);
         Self { s, c }

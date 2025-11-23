@@ -94,7 +94,7 @@ mod tests {
     use crate::mpsc;
     use crate::mutex::Mutex;
     use crate::mutex::MutexGuard;
-    use crate::once::once_cell::OnceCell;
+    use crate::once::OnceCell;
     use crate::oneshot;
     use crate::rwlock::RwLock;
     use crate::rwlock::RwLockReadGuard;
