@@ -98,7 +98,9 @@ mod test;
 /// See the [module level documentation](self) for more.
 pub struct RwLock<T: ?Sized> {
     /// Maximum number of concurrent readers.
-    max_readers: NonZeroUsize,
+    ///
+    /// This is ensured to be non-zero.
+    max_readers: usize,
     /// Semaphore to coordinate read and write access to T
     s: Semaphore,
     /// The inner data.
@@ -162,7 +164,8 @@ impl<T> RwLock<T> {
     /// let rwlock = RwLock::with_max_readers(5, max_readers);
     /// ```
     pub const fn with_max_readers(t: T, max_readers: NonZeroUsize) -> RwLock<T> {
-        let s = Semaphore::new(max_readers.get());
+        let max_readers = max_readers.get();
+        let s = Semaphore::new(max_readers);
         let c = UnsafeCell::new(t);
         RwLock { max_readers, c, s }
     }

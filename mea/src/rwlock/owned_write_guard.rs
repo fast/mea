@@ -57,10 +57,9 @@ impl<T: ?Sized> RwLock<T> {
     /// # }
     /// ```
     pub async fn write_owned(self: Arc<Self>) -> OwnedRwLockWriteGuard<T> {
-        let permits = self.max_readers.get();
-        self.s.acquire(permits).await;
+        self.s.acquire(self.max_readers).await;
         OwnedRwLockWriteGuard {
-            permits_acquired: permits,
+            permits_acquired: self.max_readers,
             lock: self,
         }
     }
@@ -92,10 +91,9 @@ impl<T: ?Sized> RwLock<T> {
     /// *v = 2;
     /// ```
     pub fn try_write_owned(self: Arc<Self>) -> Option<OwnedRwLockWriteGuard<T>> {
-        let permits = self.max_readers.get();
-        if self.s.try_acquire(permits) {
+        if self.s.try_acquire(self.max_readers) {
             Some(OwnedRwLockWriteGuard {
-                permits_acquired: permits,
+                permits_acquired: self.max_readers,
                 lock: self,
             })
         } else {
