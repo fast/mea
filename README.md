@@ -2,7 +2,7 @@
 
 [![Crates.io][crates-badge]][crates-url]
 [![Documentation][docs-badge]][docs-url]
-[![MSRV 1.80][msrv-badge]](https://www.whatrustisit.com)
+[![MSRV 1.85][msrv-badge]](https://www.whatrustisit.com)
 [![Apache 2.0 licensed][license-badge]][license-url]
 [![Build Status][actions-badge]][actions-url]
 
@@ -10,7 +10,7 @@
 [crates-url]: https://crates.io/crates/mea
 [docs-badge]: https://docs.rs/mea/badge.svg
 [docs-url]: https://docs.rs/mea
-[msrv-badge]: https://img.shields.io/badge/MSRV-1.80-green?logo=rust
+[msrv-badge]: https://img.shields.io/badge/MSRV-1.85-green?logo=rust
 [license-badge]: https://img.shields.io/crates/l/mea
 [license-url]: LICENSE
 [actions-badge]: https://github.com/fast/mea/actions/workflows/ci.yml/badge.svg
@@ -53,7 +53,7 @@ All types in this library implement `Send` and `Sync`, making them safe to share
 
 ## Minimum Supported Rust Version (MSRV)
 
-This crate is built against the latest stable release, and its minimum supported rustc version is 1.80.0.
+This crate is built against the latest stable release, and its minimum supported rustc version is 1.85.0.
 
 The policy is that the minimum Rust version required to use this crate can be increased in minor version updates. For example, if Mea 1.0 requires Rust 1.20.0, then Mea 1.0.z for all values of z will also require Rust 1.20.0 or newer. However, Mea 1.y for y > 0 may require a newer minimum version of Rust.
 
@@ -69,7 +69,7 @@ This crate collects runtime-agnostic synchronization primitives from spare parts
 * **Condvar** is inspired by `std::sync::Condvar` and `async_std::sync::Condvar`, with a different implementation based on the internal `Semaphore` primitive. Different from the async_std implementation, this condvar is fair.
 * **Latch** is inspired by [`latches`](https://github.com/mirromutth/latches), with a different implementation based on the internal `CountdownState` primitive. No `wait` or `watch` method is provided, since it can be easily implemented by [composing delay futures](https://docs.rs/fastimer/*/fastimer/fn.timeout.html). No sync variant is provided, since it can be easily implemented with block_on of any runtime.
 * **Mutex** is derived from `tokio::sync::Mutex`. No blocking method is provided, since it can be easily implemented with block_on of any runtime.
-* **RwLock** is derived from `tokio::sync::RwLock`, but the `max_readers` can be any `usize` instead of `[0, u32::MAX >> 3]`. No blocking method is provided, since it can be easily implemented with block_on of any runtime.
+* **RwLock** is derived from `tokio::sync::RwLock`, but the `max_readers` can be any `NonZeroUsize` (effectively any positive `usize`) instead of `[0, u32::MAX >> 3]`. No blocking method is provided, since it can be easily implemented with block_on of any runtime.
 * **Semaphore** is derived from `tokio::sync::Semaphore`, without `close` method since it is quite tricky to use. And thus, this semaphore doesn't have the limitation of max permits. Besides, new methods like `forget_exact` are added to fit the specific use case.
 * **WaitGroup** is inspired by [`waitgroup-rs`](https://github.com/laizy/waitgroup-rs), with a different implementation based on the internal `CountdownState` primitive. It fixes the unsound issue as described [here](https://github.com/rust-lang/futures-rs/issues/2880#issuecomment-2333842804).
 * **atomicbox** is forked from [`atomicbox`](https://github.com/jorendorff/atomicbox/) at commit 07756444.

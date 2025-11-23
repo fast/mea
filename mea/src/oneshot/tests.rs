@@ -16,10 +16,10 @@ use std::future::Future;
 use std::future::IntoFuture;
 use std::mem;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 use std::task::RawWaker;
@@ -174,7 +174,7 @@ fn waker_vtable() -> &'static RawWakerVTable {
 }
 
 unsafe fn clone_raw(data: *const ()) -> RawWaker {
-    let handle: Arc<WakerHandle> = Arc::from_raw(data as *const _);
+    let handle: Arc<WakerHandle> = unsafe { Arc::from_raw(data as *const _) };
     handle.clone_count.fetch_add(1, Ordering::Relaxed);
     mem::forget(handle.clone());
     mem::forget(handle);
@@ -182,19 +182,19 @@ unsafe fn clone_raw(data: *const ()) -> RawWaker {
 }
 
 unsafe fn wake_raw(data: *const ()) {
-    let handle: Arc<WakerHandle> = Arc::from_raw(data as *const _);
+    let handle: Arc<WakerHandle> = unsafe { Arc::from_raw(data as *const _) };
     handle.wake_count.fetch_add(1, Ordering::Relaxed);
     handle.drop_count.fetch_add(1, Ordering::Relaxed);
 }
 
 unsafe fn wake_by_ref_raw(data: *const ()) {
-    let handle: Arc<WakerHandle> = Arc::from_raw(data as *const _);
+    let handle: Arc<WakerHandle> = unsafe { Arc::from_raw(data as *const _) };
     handle.wake_count.fetch_add(1, Ordering::Relaxed);
     mem::forget(handle)
 }
 
 unsafe fn drop_raw(data: *const ()) {
-    let handle: Arc<WakerHandle> = Arc::from_raw(data as *const _);
+    let handle: Arc<WakerHandle> = unsafe { Arc::from_raw(data as *const _) };
     handle.drop_count.fetch_add(1, Ordering::Relaxed);
     drop(handle)
 }

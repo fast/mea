@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use std::prelude::rust_2015::Vec;
+use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -23,9 +23,11 @@ use super::*;
 
 macro_rules! assert_time {
     ($time:expr, $mills:literal $(,)?) => {
-        assert!((Duration::from_millis($mills - 1)
-            ..Duration::from_millis($mills + std::cmp::max($mills >> 1, 50)))
-            .contains(&$time))
+        assert!(
+            (Duration::from_millis($mills - 1)
+                ..Duration::from_millis($mills + std::cmp::max($mills >> 1, 50)))
+                .contains(&$time)
+        )
     };
 }
 

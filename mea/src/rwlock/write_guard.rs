@@ -49,9 +49,10 @@ impl<T: ?Sized> RwLock<T> {
     /// # }
     /// ```
     pub async fn write(&self) -> RwLockWriteGuard<'_, T> {
-        self.s.acquire(self.max_readers).await;
+        let permits = self.max_readers.get();
+        self.s.acquire(permits).await;
         RwLockWriteGuard {
-            permits_acquired: self.max_readers,
+            permits_acquired: permits,
             lock: self,
         }
     }
@@ -78,9 +79,10 @@ impl<T: ?Sized> RwLock<T> {
     /// *v = 2;
     /// ```
     pub fn try_write(&self) -> Option<RwLockWriteGuard<'_, T>> {
-        if self.s.try_acquire(self.max_readers) {
+        let permits = self.max_readers.get();
+        if self.s.try_acquire(permits) {
             Some(RwLockWriteGuard {
-                permits_acquired: self.max_readers,
+                permits_acquired: permits,
                 lock: self,
             })
         } else {
@@ -213,11 +215,7 @@ impl<'a, T: ?Sized> RwLockWriteGuard<'a, T> {
     ///     RwLockWriteGuard::filter_map(
     ///         guard,
     ///         |foo| {
-    ///             if foo.a > 10 {
-    ///                 Some(&mut foo.a)
-    ///             } else {
-    ///                 None
-    ///             }
+    ///             if foo.a > 10 { Some(&mut foo.a) } else { None }
     ///         },
     ///     )
     ///     .expect("should have mapped");

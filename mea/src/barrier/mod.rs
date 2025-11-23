@@ -154,7 +154,7 @@ impl BarrierWaitResult {
 impl Barrier {
     /// Creates a new barrier that can block the specified number of tasks.
     ///
-    /// A barrier will block `n` tasks and release them all at once when the last task arrives.
+    /// A barrier will block `n-1` tasks and release them all at once when the `n`th task arrives.
     ///
     /// # Arguments
     ///

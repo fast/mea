@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::Weak;
 
@@ -59,7 +60,7 @@ fn test_get_mut_provides_exclusive_access() {
 
 #[test]
 fn test_with_max_readers() {
-    let rwlock = RwLock::with_max_readers(10, 2);
+    let rwlock = RwLock::with_max_readers(10, NonZeroUsize::new(2).unwrap());
 
     let r1 = rwlock.try_read().unwrap();
     let r2 = rwlock.try_read().unwrap();
@@ -372,8 +373,10 @@ async fn test_rwlock_debug_when_locked() {
 
     let shows_value = rwlock_debug_read.contains("78");
     let shows_locked = rwlock_debug_read.contains("<locked>");
-    assert!(shows_value || shows_locked,
-            "RwLock Debug with read lock should show either value or <locked>, got: {rwlock_debug_read}");
+    assert!(
+        shows_value || shows_locked,
+        "RwLock Debug with read lock should show either value or <locked>, got: {rwlock_debug_read}"
+    );
 
     drop(read_guard);
 
@@ -517,11 +520,7 @@ async fn test_owned_mapped_write_guard_filter_map_memory_leak() {
             let write_guard = rwlock.clone().write_owned().await;
             let mapped_guard1 = OwnedRwLockWriteGuard::map(write_guard, |v| v);
             let mut mapped_guard2 = OwnedMappedRwLockWriteGuard::filter_map(mapped_guard1, |v| {
-                if !v.is_empty() {
-                    Some(&mut v[0])
-                } else {
-                    None
-                }
+                if !v.is_empty() { Some(&mut v[0]) } else { None }
             })
             .expect("Should succeed");
             *mapped_guard2 = 100;
@@ -544,11 +543,7 @@ async fn test_owned_mapped_write_guard_filter_map_memory_leak() {
             let write_guard = rwlock.clone().write_owned().await;
             let mapped_guard1 = OwnedRwLockWriteGuard::map(write_guard, |v| v);
             let result = OwnedMappedRwLockWriteGuard::filter_map(mapped_guard1, |v| {
-                if !v.is_empty() {
-                    Some(&mut v[0])
-                } else {
-                    None
-                }
+                if !v.is_empty() { Some(&mut v[0]) } else { None }
             });
 
             assert!(
@@ -815,7 +810,7 @@ async fn test_downgrade_allows_concurrent_readers() {
 }
 #[tokio::test]
 async fn test_downgrade_with_max_readers() {
-    let rwlock = Arc::new(RwLock::with_max_readers(0, 3));
+    let rwlock = Arc::new(RwLock::with_max_readers(0, NonZeroUsize::new(3).unwrap()));
 
     let mut write_guard = rwlock.write().await;
     *write_guard = 100;

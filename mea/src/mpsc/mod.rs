@@ -20,12 +20,12 @@ mod error;
 mod tests;
 mod unbounded;
 
-pub use bounded::bounded;
 pub use bounded::BoundedReceiver;
 pub use bounded::BoundedSender;
+pub use bounded::bounded;
 pub use error::SendError;
 pub use error::TryRecvError;
 pub use error::TrySendError;
-pub use unbounded::unbounded;
 pub use unbounded::UnboundedReceiver;
 pub use unbounded::UnboundedSender;
+pub use unbounded::unbounded;

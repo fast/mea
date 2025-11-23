@@ -14,9 +14,9 @@
 
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::MutexGuard;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use std::sync::MutexGuard;
 use std::task::Context;
 use std::task::Poll;
 use std::task::Waker;
@@ -238,16 +238,14 @@ impl Drop for Acquire<'_> {
     }
 }
 
-impl Future for Acquire<'_> {
-    type Output = ();
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+impl Acquire<'_> {
+    pub(crate) fn poll_once(&mut self, waker: &Waker) -> Poll<()> {
         let Self {
             permits,
             index,
             semaphore,
             done,
-        } = self.get_mut();
+        } = self;
 
         if *done {
             return Poll::Ready(());
@@ -259,12 +257,9 @@ impl Future for Acquire<'_> {
                 let mut ready = false;
                 waiters.with_mut(*idx, |node| {
                     if node.permits > 0 {
-                        let update_waker = node
-                            .waker
-                            .as_ref()
-                            .map_or(true, |w| !w.will_wake(cx.waker()));
+                        let update_waker = node.waker.as_ref().is_none_or(|w| !w.will_wake(waker));
                         if update_waker {
-                            node.waker = Some(cx.waker().clone());
+                            node.waker = Some(waker.clone());
                         }
                         false
                     } else {
@@ -283,7 +278,7 @@ impl Future for Acquire<'_> {
                 // not yet enqueued
                 let needed = *permits;
 
-                if acquired_or_enqueue(semaphore, needed, index, Some(cx.waker()), true) {
+                if acquired_or_enqueue(semaphore, needed, index, Some(waker), true) {
                     *done = true;
                     return Poll::Ready(());
                 }
@@ -291,6 +286,15 @@ impl Future for Acquire<'_> {
         };
 
         Poll::Pending
+    }
+}
+
+impl Future for Acquire<'_> {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+        this.poll_once(cx.waker())
     }
 }
 
