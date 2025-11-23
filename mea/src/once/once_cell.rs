@@ -88,6 +88,10 @@ impl<T> OnceCell<T> {
     /// If some other task is currently working on initializing the `OnceCell`, this call will wait
     /// for that other task to finish, then return the value that the other task produced.
     ///
+    /// If the provided operation is cancelled, the initialization attempt is cancelled. If there
+    /// are other tasks waiting for the value to be initialized, one of them will start another
+    /// attempt at initializing the value.
+    ///
     /// This will deadlock if `init` tries to initialize the cell recursively.
     pub async fn get_or_init<F, Fut>(&self, init: F) -> &T
     where

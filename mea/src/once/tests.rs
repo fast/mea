@@ -98,3 +98,21 @@ fn multi_init() {
         }
     });
 }
+
+#[tokio::test]
+async fn init_cancelled() {
+    let cell = OnceCell::new();
+    let value_future = cell.get_or_init(|| async {
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        1
+    });
+    let success_value_future = cell.get_or_init(|| async { 2 });
+    let timeout_future = tokio::time::timeout(std::time::Duration::from_millis(1), value_future);
+    tokio::select! {
+        result = timeout_future => {
+            assert!(result.is_err(), "Expected timeout error");
+        }
+    };
+    let value = success_value_future.await;
+    assert!(*value == 2, "Expected value to be 2, got {}", *value);
+}
