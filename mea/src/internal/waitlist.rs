@@ -109,14 +109,15 @@ impl<T> WaitList<T> {
         *idx = Some(new_key);
     }
 
-    /// Removes a previously registered waker from the wait list.
+    /// Removes a previously registered waker from the wait list, if the predicate `f` returns
+    /// `true`.
     pub(crate) fn remove_waiter(
         &mut self,
         idx: usize,
         f: impl FnOnce(&mut T) -> bool,
     ) -> Option<&mut T> {
         // SAFETY: the wait list must be initialized before any waiter can be registered
-        let guard = self.guard.expect("wait list is uninitialized");
+        let guard = self.guard.expect("wait list must be uninitialized");
 
         assert_ne!(idx, guard);
 
@@ -138,7 +139,7 @@ impl<T> WaitList<T> {
         }
     }
 
-    /// Removes the first waiter from the wait list.
+    /// Removes the first waiter from the wait list, if the predicate `f` returns `true`.
     pub(crate) fn remove_first_waiter(&mut self, f: impl FnOnce(&mut T) -> bool) -> Option<&mut T> {
         let guard = self.guard?;
         let first = self.nodes[guard].next;
