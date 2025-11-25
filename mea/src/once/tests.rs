@@ -158,3 +158,60 @@ async fn init_error() {
         handle2.await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn set() {
+    let cell = OnceCell::new();
+    assert!(cell.set(1).is_ok());
+    assert_eq!(*cell.get().unwrap(), 1);
+    assert_eq!(cell.set(2).unwrap_err(), 2);
+
+    static CELL: OnceCell<u8> = OnceCell::new();
+
+    let handle1 = tokio::spawn(async {
+        let value = CELL
+            .get_or_init(|| async {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                3
+            })
+            .await;
+        assert_eq!(*value, 3);
+    });
+
+    let handle2 = tokio::spawn(async {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(CELL.set(4).unwrap_err(), 4);
+    });
+
+    handle1.await.unwrap();
+    handle2.await.unwrap();
+}
+
+#[tokio::test]
+async fn try_insert() {
+    let cell = OnceCell::new();
+    assert_eq!(cell.try_insert(1).unwrap(), cell.get().unwrap());
+    let result = cell.try_insert(2).unwrap_err();
+    assert_eq!(result, (cell.get(), 2));
+
+    static CELL: OnceCell<u8> = OnceCell::new();
+
+    let handle1 = tokio::spawn(async {
+        let value = CELL
+            .get_or_init(|| async {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                3
+            })
+            .await;
+        assert_eq!(*value, 3);
+    });
+
+    let handle2 = tokio::spawn(async {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let result = CELL.try_insert(4).unwrap_err();
+        assert_eq!(result, (None, 4));
+    });
+
+    handle1.await.unwrap();
+    handle2.await.unwrap();
+}
