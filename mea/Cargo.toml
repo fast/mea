@@ -33,7 +33,7 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-slab = { version = "0.4.9" }
+slab = { version = "0.4.11" }
 
 [dev-dependencies]
 pollster = { version = "0.4.0", features = ["macro"] }
