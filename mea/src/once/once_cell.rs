@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::cell::UnsafeCell;
+use std::fmt;
 use std::future::Future;
 use std::mem::MaybeUninit;
 use std::sync::atomic::AtomicBool;
@@ -72,16 +73,44 @@ impl<T> OnceCell<T> {
         }
     }
 
+    /// Creates a new `OnceCell` initialized with the provided value.
+    pub const fn from_value(value: T) -> Self {
+        Self {
+            value_set: AtomicBool::new(true),
+            value: UnsafeCell::new(MaybeUninit::new(value)),
+            semaphore: Semaphore::new(1),
+        }
+    }
+
     /// Returns whether the internal value is set.
-    fn initialized(&self) -> bool {
+    fn is_initialized(&self) -> bool {
         self.value_set.load(Ordering::Acquire)
     }
 
-    /// Returns the reference to the internal value or `None` if it is not set yet.
+    /// Gets the reference to the underlying value.
+    ///
+    /// Returns `None` if the cell is uninitialized, or being initialized.
+    ///
+    /// This method never blocks.
     pub fn get(&self) -> Option<&T> {
-        if self.initialized() {
-            // SAFETY: value was initialized
+        if self.is_initialized() {
+            // SAFETY: checked is_initialized
             Some(unsafe { self.get_unchecked() })
+        } else {
+            None
+        }
+    }
+
+    /// Gets the mutable reference to the underlying value.
+    ///
+    /// Returns `None` if the cell is uninitialized.
+    ///
+    /// This method never blocks. Since it borrows the `OnceCell` mutably, it is statically
+    /// guaranteed that no active borrows to the `OnceCell` exist, including from other threads.
+    pub fn get_mut(&mut self) -> Option<&mut T> {
+        if self.is_initialized() {
+            // SAFETY: checked is_initialized and we have a unique access
+            Some(unsafe { self.get_unchecked_mut() })
         } else {
             None
         }
@@ -153,9 +182,22 @@ impl<T> OnceCell<T> {
         }
     }
 
-    // SAFETY: Caller must ensure that `initialized()` returns true before calling this method.
+    /// # Safety
+    ///
+    /// The cell must be initialized
+    #[inline]
     unsafe fn get_unchecked(&self) -> &T {
-        unsafe { &*(*self.value.get()).as_ptr() }
+        debug_assert!(self.is_initialized());
+        unsafe { (&*self.value.get()).assume_init_ref() }
+    }
+
+    /// # Safety
+    ///
+    /// The cell must be initialized
+    #[inline]
+    unsafe fn get_unchecked_mut(&mut self) -> &mut T {
+        debug_assert!(self.is_initialized());
+        unsafe { (&mut *self.value.get()).assume_init_mut() }
     }
 
     fn set_value(&self, value: T, permit: SemaphorePermit<'_>) -> &T {
@@ -177,9 +219,42 @@ impl<T> OnceCell<T> {
 impl<T> Drop for OnceCell<T> {
     fn drop(&mut self) {
         if *self.value_set.get_mut() {
-            let value = self.value.get_mut().as_mut_ptr();
-            // SAFETY: the value is initialized
-            unsafe { std::ptr::drop_in_place(value) };
+            // SAFETY: The cell is initialized and being dropped, so it can't be accessed again.
+            unsafe { (&mut *self.value.get()).assume_init_drop() };
         }
     }
 }
+
+impl<T: fmt::Debug> fmt::Debug for OnceCell<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_tuple("OnceCell");
+        match self.get() {
+            Some(v) => d.field(v),
+            None => d.field(&format_args!("<uninit>")),
+        };
+        d.finish()
+    }
+}
+
+impl<T: Clone> Clone for OnceCell<T> {
+    fn clone(&self) -> OnceCell<T> {
+        match self.get() {
+            Some(v) => OnceCell::from_value(v.clone()),
+            None => OnceCell::new(),
+        }
+    }
+}
+
+impl<T> From<T> for OnceCell<T> {
+    fn from(value: T) -> Self {
+        OnceCell::from_value(value)
+    }
+}
+
+impl<T: PartialEq> PartialEq for OnceCell<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.get() == other.get()
+    }
+}
+
+impl<T: Eq> Eq for OnceCell<T> {}
