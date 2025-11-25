@@ -187,21 +187,37 @@ impl<T> OnceCell<T> {
     /// Returns `Ok(())` if the cell was uninitialized and `Err(value)` if the cell was already
     /// initialized.
     pub fn set(&self, value: T) -> Result<(), T> {
-        if self.is_initialized() {
-            return Err(value);
+        match self.try_insert(value) {
+            Ok(_) => Ok(()),
+            Err((_, v)) => Err(v),
+        }
+    }
+
+    /// Initializes the contents of the cell to `value` if the cell was
+    /// uninitialized, then returns a reference to it.
+    ///
+    /// # Errors
+    ///
+    /// This method returns `Ok(&value)` if the cell was uninitialized
+    /// or `Err((&current_value, value))` if it was already initialized,
+    /// or `Err((None, value))` if another task is currently initializing the cell.
+    pub fn try_insert(&self, value: T) -> Result<&T, (Option<&T>, T)> {
+        if let Some(v) = self.get() {
+            return Err((Some(v), value));
         }
 
-        match self.semaphore.try_acquire(1) {
-            Some(permit) => {
-                if self.is_initialized() {
-                    // this case should hardly happen, but we check again to be safe
-                    Err(value)
-                } else {
-                    self.set_value(value, permit);
-                    Ok(())
-                }
-            }
-            None => Err(value),
+        let optional_permit = self.semaphore.try_acquire(1);
+        println!(
+            "try_insert acquired permit: {:?}",
+            optional_permit.is_some()
+        );
+        match self.get() {
+            // double-checked: another task initialized the value
+            Some(v) => Err((Some(v), value)),
+            None => match optional_permit {
+                Some(permit) => Ok(self.set_value(value, permit)),
+                None => Err((None, value)),
+            },
         }
     }
 
