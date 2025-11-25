@@ -199,8 +199,13 @@ impl<T> OnceCell<T> {
 
         match self.semaphore.try_acquire(1) {
             Some(permit) => {
-                self.set_value(value, permit);
-                Ok(())
+                if self.is_initialized() {
+                    // this case should hardly happen, but we check again to be safe
+                    Err(SetError::InitializingError(value))
+                } else {
+                    self.set_value(value, permit);
+                    Ok(())
+                }
             }
             None => Err(SetError::InitializingError(value)),
         }
