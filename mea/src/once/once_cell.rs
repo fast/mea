@@ -19,6 +19,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use crate::semaphore::Semaphore;
+use crate::semaphore::SemaphorePermit;
 
 /// A thread-safe cell which can nominally be written to only once.
 ///
@@ -106,7 +107,7 @@ impl<T> OnceCell<T> {
             return v;
         }
 
-        let _permit = self.semaphore.acquire(1).await;
+        let permit = self.semaphore.acquire(1).await;
 
         if let Some(v) = self.get() {
             // double-checked: another task initialized the value
@@ -115,6 +116,51 @@ impl<T> OnceCell<T> {
         }
 
         let value = init().await;
+        self.set_value(value, permit)
+    }
+
+    /// Gets the reference to the internal value, initializing it with the provided asynchronous
+    /// function if it is not set yet.
+    ///
+    /// If some other task is currently working on initializing the `OnceCell`, this call will wait
+    /// for that other task to finish, then return the value that the other task produced.
+    ///
+    /// If the provided operation returns an error, is cancelled or panics, the initialization
+    /// attempt is cancelled. If there are other tasks waiting for the value to be initialized
+    /// one of them will start another attempt at initializing the value.
+    ///
+    /// This will deadlock if `init` tries to initialize the cell recursively.
+    pub async fn get_or_try_init<E, F, Fut>(&self, init: F) -> Result<&T, E>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<T, E>>,
+    {
+        if let Some(v) = self.get() {
+            return Ok(v);
+        }
+
+        let permit = self.semaphore.acquire(1).await;
+
+        if let Some(v) = self.get() {
+            // double-checked: another task initialized the value
+            // while we were waiting for the permit
+            return Ok(v);
+        }
+
+        match init().await {
+            Ok(v) => Ok(self.set_value(v, permit)),
+            Err(err) => Err(err),
+        }
+    }
+
+    // SAFETY: Caller must ensure that `initialized()` returns true before calling this method.
+    unsafe fn get_unchecked(&self) -> &T {
+        unsafe { &*(*self.value.get()).as_ptr() }
+    }
+
+    fn set_value(&self, value: T, permit: SemaphorePermit<'_>) -> &T {
+        // Hold the permit to ensure exclusive access.
+        let _permit = permit;
 
         let value_ptr = self.value.get();
         unsafe { value_ptr.write(MaybeUninit::new(value)) };
@@ -126,16 +172,11 @@ impl<T> OnceCell<T> {
         // SAFETY: value initialized above
         unsafe { self.get_unchecked() }
     }
-
-    // SAFETY: Caller must ensure that `initialized()` returns true before calling this method.
-    unsafe fn get_unchecked(&self) -> &T {
-        unsafe { &*(*self.value.get()).as_ptr() }
-    }
 }
 
 impl<T> Drop for OnceCell<T> {
     fn drop(&mut self) {
-        if self.initialized() {
+        if *self.value_set.get_mut() {
             let value = self.value.get_mut().as_mut_ptr();
             // SAFETY: the value is initialized
             unsafe { std::ptr::drop_in_place(value) };

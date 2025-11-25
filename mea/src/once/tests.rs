@@ -119,3 +119,42 @@ async fn init_cancelled() {
     handle1.await.unwrap();
     handle2.await.unwrap();
 }
+
+#[tokio::test]
+async fn init_error() {
+    {
+        static CELL: OnceCell<u8> = OnceCell::new();
+
+        let handle1 = tokio::spawn(async {
+            let result = CELL.get_or_try_init(|| async { Err(()) }).await;
+            assert!(result.is_err());
+        });
+
+        let handle2 = tokio::spawn(async {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let value = CELL.get_or_try_init(|| async { Ok::<_, ()>(2) }).await;
+            assert_eq!(*value.unwrap(), 2);
+        });
+
+        handle1.await.unwrap();
+        handle2.await.unwrap();
+    }
+
+    {
+        static CELL: OnceCell<u8> = OnceCell::new();
+
+        let handle1 = tokio::spawn(async {
+            let value = CELL.get_or_try_init(|| async { Ok::<_, ()>(2) }).await;
+            assert_eq!(*value.unwrap(), 2);
+        });
+
+        let handle2 = tokio::spawn(async {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let value = CELL.get_or_try_init(|| async { Err(()) }).await;
+            assert_eq!(*value.unwrap(), 2);
+        });
+
+        handle1.await.unwrap();
+        handle2.await.unwrap();
+    }
+}
