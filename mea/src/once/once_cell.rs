@@ -14,7 +14,6 @@
 
 use std::cell::UnsafeCell;
 use std::fmt;
-use std::fmt::Display;
 use std::future::Future;
 use std::mem::MaybeUninit;
 use std::sync::atomic::AtomicBool;
@@ -185,29 +184,24 @@ impl<T> OnceCell<T> {
 
     /// Sets the value of the cell to the given value if `OnceCell` is empty.
     ///
-    /// If the cell is already initialized, returns a [`SetError::AlreadyInitializedError`].
-    ///
-    /// If the cell is currently being initialized by another task, returns a
-    /// [`SetError::InitializingError`].
-    ///
-    /// [`SetError::AlreadyInitializedError`]: crate::once::SetError::AlreadyInitializedError
-    /// [`SetError::InitializingError`]: crate::once::SetError::InitializingError
-    pub fn set(&self, value: T) -> Result<(), SetError<T>> {
+    /// Returns `Ok(())` if the cell was uninitialized and `Err(value)` if the cell was already
+    /// initialized.
+    pub fn set(&self, value: T) -> Result<(), T> {
         if self.is_initialized() {
-            return Err(SetError::AlreadyInitializedError(value));
+            return Err(value);
         }
 
         match self.semaphore.try_acquire(1) {
             Some(permit) => {
                 if self.is_initialized() {
                     // this case should hardly happen, but we check again to be safe
-                    Err(SetError::InitializingError(value))
+                    Err(value)
                 } else {
                     self.set_value(value, permit);
                     Ok(())
                 }
             }
-            None => Err(SetError::InitializingError(value)),
+            None => Err(value),
         }
     }
 
@@ -287,30 +281,3 @@ impl<T: PartialEq> PartialEq for OnceCell<T> {
 }
 
 impl<T: Eq> Eq for OnceCell<T> {}
-
-/// Errors that can be returned from [`OnceCell::set`].
-///
-/// [`OnceCell::set`]: crate::once::OnceCell::set
-#[derive(Debug, PartialEq, Eq)]
-pub enum SetError<T> {
-    /// The cell was already initialized when [`OnceCell::set`] was called.
-    ///
-    /// [`OnceCell::set`]: crate::once::OnceCell::set
-    AlreadyInitializedError(T),
-
-    /// The cell is currently being initialized.
-    InitializingError(T),
-}
-
-impl<T> Display for SetError<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SetError::AlreadyInitializedError(_) => {
-                write!(f, "AlreadyInitializedError")
-            }
-            SetError::InitializingError(_) => {
-                write!(f, "InitializingError")
-            }
-        }
-    }
-}

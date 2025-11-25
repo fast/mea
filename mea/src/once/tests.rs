@@ -20,7 +20,6 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 
 use super::once_cell::OnceCell;
-use super::once_cell::SetError;
 use crate::latch::Latch;
 
 struct Foo {
@@ -164,10 +163,8 @@ async fn init_error() {
 async fn set() {
     let cell = OnceCell::new();
     assert!(cell.set(1).is_ok());
-    assert!(*cell.get().unwrap() == 1);
-    let error = cell.set(2).unwrap_err();
-    println!("Error: {} (debug: {:?})", &error, &error);
-    assert!(error == SetError::AlreadyInitializedError(2));
+    assert_eq!(*cell.get().unwrap(), 1);
+    assert_eq!(cell.set(2).unwrap_err(), 2);
 
     static CELL: OnceCell<u8> = OnceCell::new();
 
@@ -183,9 +180,7 @@ async fn set() {
 
     let handle2 = tokio::spawn(async {
         tokio::time::sleep(Duration::from_millis(50)).await;
-        let error = CELL.set(4).unwrap_err();
-        println!("Error: {} (debug: {:?})", &error, &error);
-        assert!(error == SetError::InitializingError(4));
+        assert_eq!(CELL.set(4).unwrap_err(), 4);
     });
 
     handle1.await.unwrap();

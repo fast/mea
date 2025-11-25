@@ -16,7 +16,6 @@
 
 mod once_cell;
 pub use self::once_cell::OnceCell;
-pub use self::once_cell::SetError;
 
 #[cfg(test)]
 mod tests;
