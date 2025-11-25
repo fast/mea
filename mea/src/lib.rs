@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![deny(missing_docs)]
 
 //! # Mea - Make Easy Async
@@ -28,6 +28,7 @@
 //! * [`Condvar`]: A condition variable that allows tasks to wait for a notification
 //! * [`Latch`]: A single-use barrier that allows one or more tasks to wait until a signal is given
 //! * [`Mutex`]: A mutual exclusion primitive for protecting shared data
+//! * [`OnceCell`]: A cell that can be initialized only once and provides safe concurrent access
 //! * [`RwLock`]: A reader-writer lock that allows multiple readers or a single writer at a time
 //! * [`Semaphore`]: A synchronization primitive that controls access to a shared resource
 //! * [`ShutdownSend`] & [`ShutdownRecv`]: A composite synchronization primitive for managing
@@ -56,6 +57,7 @@
 //! [`Condvar`]: condvar::Condvar
 //! [`Latch`]: latch::Latch
 //! [`Mutex`]: mutex::Mutex
+//! [`OnceCell`]: once::OnceCell
 //! [`RwLock`]: rwlock::RwLock
 //! [`Semaphore`]: semaphore::Semaphore
 //! [`ShutdownSend`]: shutdown::ShutdownSend

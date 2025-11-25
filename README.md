@@ -26,6 +26,7 @@ Mea (Make Easy Async) is a runtime-agnostic library providing essential synchron
 * [**Condvar**](https://docs.rs/mea/*/mea/condvar/struct.Condvar.html): A condition variable that allows tasks to wait for a notification.
 * [**Latch**](https://docs.rs/mea/*/mea/latch/struct.Latch.html): A synchronization primitive that allows one or more tasks to wait until a set of operations completes.
 * [**Mutex**](https://docs.rs/mea/*/mea/mutex/struct.Mutex.html): A mutual exclusion primitive for protecting shared data.
+* [**OnceCell**](https://docs.rs/mea/*/mea/once/struct.OnceCell.html): A cell that can be written to only once, providing safe, lazy initialization.
 * [**RwLock**](https://docs.rs/mea/*/mea/rwlock/struct.RwLock.html): A reader-writer lock that allows multiple readers or a single writer at a time.
 * [**Semaphore**](https://docs.rs/mea/*/mea/semaphore/struct.Semaphore.html): A synchronization primitive that controls access to a shared resource.
 * [**ShutdownSend & ShutdownRecv**](https://docs.rs/mea/*/mea/shutdown/): A composite synchronization primitive for managing shutdown signals.
@@ -69,6 +70,7 @@ This crate collects runtime-agnostic synchronization primitives from spare parts
 * **Condvar** is inspired by `std::sync::Condvar` and `async_std::sync::Condvar`, with a different implementation based on the internal `Semaphore` primitive. Different from the async_std implementation, this condvar is fair.
 * **Latch** is inspired by [`latches`](https://github.com/mirromutth/latches), with a different implementation based on the internal `CountdownState` primitive. No `wait` or `watch` method is provided, since it can be easily implemented by [composing delay futures](https://docs.rs/fastimer/*/fastimer/fn.timeout.html). No sync variant is provided, since it can be easily implemented with block_on of any runtime.
 * **Mutex** is derived from `tokio::sync::Mutex`. No blocking method is provided, since it can be easily implemented with block_on of any runtime.
+* **OnceCell** is derived from `tokio::sync::OnceCell`, but using our own semaphore implementation.
 * **RwLock** is derived from `tokio::sync::RwLock`, but the `max_readers` can be any `NonZeroUsize` (effectively any positive `usize`) instead of `[0, u32::MAX >> 3]`. No blocking method is provided, since it can be easily implemented with block_on of any runtime.
 * **Semaphore** is derived from `tokio::sync::Semaphore`, without `close` method since it is quite tricky to use. And thus, this semaphore doesn't have the limitation of max permits. Besides, new methods like `forget_exact` are added to fit the specific use case.
 * **WaitGroup** is inspired by [`waitgroup-rs`](https://github.com/laizy/waitgroup-rs), with a different implementation based on the internal `CountdownState` primitive. It fixes the unsound issue as described [here](https://github.com/rust-lang/futures-rs/issues/2880#issuecomment-2333842804).
