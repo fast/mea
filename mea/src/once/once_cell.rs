@@ -18,7 +18,7 @@ use std::mem::MaybeUninit;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
-use crate::internal;
+use crate::semaphore::Semaphore;
 
 /// A thread-safe cell which can nominally be written to only once.
 ///
@@ -46,7 +46,7 @@ use crate::internal;
 pub struct OnceCell<T> {
     value_set: AtomicBool,
     value: UnsafeCell<MaybeUninit<T>>,
-    semaphore: internal::Semaphore,
+    semaphore: Semaphore,
 }
 
 // SAFETY: OnceCell<T> can be shared between threads as long as T is Sync + Send.
@@ -67,7 +67,7 @@ impl<T> OnceCell<T> {
         Self {
             value_set: AtomicBool::new(false),
             value: UnsafeCell::new(MaybeUninit::uninit()),
-            semaphore: internal::Semaphore::new(1),
+            semaphore: Semaphore::new(1),
         }
     }
 
@@ -78,7 +78,8 @@ impl<T> OnceCell<T> {
 
     /// Returns the reference to the internal value or `None` if it is not set yet.
     pub fn get(&self) -> Option<&T> {
-        if self.value_set.load(Ordering::Acquire) {
+        if self.initialized() {
+            // SAFETY: value was initialized
             Some(unsafe { self.get_unchecked() })
         } else {
             None
@@ -101,27 +102,28 @@ impl<T> OnceCell<T> {
         F: FnOnce() -> Fut,
         Fut: Future<Output = T>,
     {
-        if self.initialized() {
-            // SAFETY: We just checked that the value is initialized.
-            return unsafe { self.get_unchecked() };
+        if let Some(v) = self.get() {
+            return v;
         }
-        self.semaphore.acquire(1).await;
-        let _guard = Guard {
-            semaphore: &self.semaphore,
-        };
-        if self.initialized() {
-            // Another task initialized the value while we were waiting for the semaphore.
-            // SAFETY: We just checked that the value is initialized.
-            return unsafe { self.get_unchecked() };
+
+        let _permit = self.semaphore.acquire(1).await;
+
+        if let Some(v) = self.get() {
+            // double-checked: another task initialized the value
+            // while we were waiting for the permit
+            return v;
         }
 
         let value = init().await;
+
         let value_ptr = self.value.get();
         unsafe { value_ptr.write(MaybeUninit::new(value)) };
+
         // Use `store` with `Release` ordering to ensure that when loading it with `Acquire`
         // ordering, the initialized value is visible.
         self.value_set.store(true, Ordering::Release);
-        // SAFETY: value initialized one line above
+
+        // SAFETY: value initialized above
         unsafe { self.get_unchecked() }
     }
 
@@ -138,15 +140,5 @@ impl<T> Drop for OnceCell<T> {
             // SAFETY: the value is initialized
             unsafe { std::ptr::drop_in_place(value) };
         }
-    }
-}
-
-struct Guard<'a> {
-    semaphore: &'a internal::Semaphore,
-}
-
-impl<'a> Drop for Guard<'a> {
-    fn drop(&mut self) {
-        self.semaphore.release(1);
     }
 }
