@@ -20,6 +20,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use crate::semaphore::Semaphore;
+use crate::semaphore::SemaphorePermit;
 
 /// A thread-safe cell which can nominally be written to only once.
 ///
@@ -82,8 +83,13 @@ impl<T> OnceCell<T> {
     }
 
     /// Returns whether the internal value is set.
-    fn is_initialized(&self) -> bool {
+    fn initialized(&self) -> bool {
         self.value_set.load(Ordering::Acquire)
+    }
+
+    /// Returns whether the internal value is set.
+    fn initialized_mut(&mut self) -> bool {
+        *self.value_set.get_mut()
     }
 
     /// Gets the reference to the underlying value.
@@ -92,7 +98,7 @@ impl<T> OnceCell<T> {
     ///
     /// This method never blocks.
     pub fn get(&self) -> Option<&T> {
-        if self.is_initialized() {
+        if self.initialized() {
             // SAFETY: checked is_initialized
             Some(unsafe { self.get_unchecked() })
         } else {
@@ -107,7 +113,7 @@ impl<T> OnceCell<T> {
     /// This method never blocks. Since it borrows the `OnceCell` mutably, it is statically
     /// guaranteed that no active borrows to the `OnceCell` exist, including from other threads.
     pub fn get_mut(&mut self) -> Option<&mut T> {
-        if self.is_initialized() {
+        if self.initialized_mut() {
             // SAFETY: checked is_initialized and we have a unique access
             Some(unsafe { self.get_unchecked_mut() })
         } else {
@@ -144,13 +150,7 @@ impl<T> OnceCell<T> {
         }
 
         let value = init().await;
-        // SAFETY: holding the permit ensures exclusive access
-        unsafe {
-            self.set_value(value);
-        }
-        std::mem::drop(permit);
-        // SAFETY: value initialized above
-        unsafe { self.get_unchecked() }
+        self.set_value(value, permit)
     }
 
     /// Gets the reference to the internal value, initializing it with the provided asynchronous
@@ -182,13 +182,7 @@ impl<T> OnceCell<T> {
         }
 
         let value = init().await?;
-        // SAFETY: holding the permit ensures exclusive access
-        unsafe {
-            self.set_value(value);
-        }
-        std::mem::drop(permit);
-        // SAFETY: value initialized above
-        unsafe { Ok(self.get_unchecked()) }
+        Ok(self.set_value(value, permit))
     }
 
     /// Gets a mutable reference to the internal value, initializing it with the provided
@@ -220,16 +214,15 @@ impl<T> OnceCell<T> {
         F: FnOnce() -> Fut,
         Fut: Future<Output = T>,
     {
-        if self.is_initialized() {
-            unsafe { self.get_unchecked_mut() }
-        } else {
-            let value = init().await;
-            // SAFETY: we have exclusive access via holding &mut self
-            unsafe {
-                self.set_value(value);
-                self.get_unchecked_mut()
-            }
+        // Workaround if let Some(v) = self.get_mut() { return v; }
+        // @see https://github.com/rust-lang/rust/issues/51545
+        if self.initialized_mut() {
+            // SAFETY: checked is_initialized and we have a unique access
+            return unsafe { self.get_unchecked_mut() };
         }
+
+        let value = init().await;
+        self.set_value_mut(value)
     }
 
     /// Gets a mutable reference to the internal value, initializing it with the provided
@@ -270,16 +263,15 @@ impl<T> OnceCell<T> {
         F: FnOnce() -> Fut,
         Fut: Future<Output = Result<T, E>>,
     {
-        if self.is_initialized() {
+        // Workaround if let Some(v) = self.get_mut() { return Ok(v); }
+        // @see https://github.com/rust-lang/rust/issues/51545
+        if self.initialized_mut() {
+            // SAFETY: checked is_initialized and we have a unique access
             return Ok(unsafe { self.get_unchecked_mut() });
         }
 
         let value = init().await?;
-        // SAFETY: we have exclusive access via holding &mut self
-        unsafe {
-            self.set_value(value);
-            Ok(self.get_unchecked_mut())
-        }
+        Ok(self.set_value_mut(value))
     }
 
     /// # Safety
@@ -287,7 +279,7 @@ impl<T> OnceCell<T> {
     /// The cell must be initialized
     #[inline]
     unsafe fn get_unchecked(&self) -> &T {
-        debug_assert!(self.is_initialized());
+        debug_assert!(self.initialized());
         unsafe { (&*self.value.get()).assume_init_ref() }
     }
 
@@ -296,27 +288,35 @@ impl<T> OnceCell<T> {
     /// The cell must be initialized
     #[inline]
     unsafe fn get_unchecked_mut(&mut self) -> &mut T {
-        debug_assert!(self.is_initialized());
+        debug_assert!(self.initialized_mut());
         unsafe { (&mut *self.value.get()).assume_init_mut() }
     }
 
-    /// # Safety
-    ///
-    /// This method must be accessed exclusively, e.g. holding the semaphore permit or via `&mut
-    /// self`.
-    unsafe fn set_value(&self, value: T) {
+    fn set_value(&self, value: T, permit: SemaphorePermit<'_>) -> &T {
+        // Hold the permit to ensure exclusive access.
+        let _permit = permit;
+
         let value_ptr = self.value.get();
         unsafe { value_ptr.write(MaybeUninit::new(value)) };
 
         // Use `store` with `Release` ordering to ensure that when loading it with `Acquire`
         // ordering, the initialized value is visible.
         self.value_set.store(true, Ordering::Release);
+
+        // SAFETY: value initialized above
+        unsafe { self.get_unchecked() }
+    }
+
+    fn set_value_mut(&mut self, value: T) -> &mut T {
+        let value = self.value.get_mut().write(value);
+        *self.value_set.get_mut() = true;
+        value
     }
 }
 
 impl<T> Drop for OnceCell<T> {
     fn drop(&mut self) {
-        if *self.value_set.get_mut() {
+        if self.initialized_mut() {
             // SAFETY: The cell is initialized and being dropped, so it can't be accessed again.
             unsafe { (&mut *self.value.get()).assume_init_drop() };
         }
