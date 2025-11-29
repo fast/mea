@@ -270,37 +270,6 @@ impl<T> OnceCell<T> {
         Ok(self.set_value_mut(value))
     }
 
-    /// Wait until the cell is initialized.
-    ///
-    /// # Example
-    ///
-    /// Waiting for a computation on another thread to finish:
-    ///
-    /// ```rust
-    /// use mea::once::OnceCell;
-    /// # use std::time::Duration;
-    ///
-    /// static CELL: OnceCell<i32> = OnceCell::new();
-    ///
-    /// # #[tokio::main]
-    /// # async fn main() {
-    /// tokio::spawn(async {
-    ///     tokio::time::sleep(Duration::from_millis(10));
-    ///     assert_eq!(CELL.set(92).await, Ok(()));
-    /// });
-    ///
-    /// assert_eq!(CELL.wait().await, &92);
-    /// # }
-    /// ```
-    pub async fn wait(&self) -> &T {
-        while !self.initialized() {
-            let _ = self.semaphore.acquire(1).await;
-        }
-
-        // SAFETY: the cell must be initialized when break the while loop
-        unsafe { self.get_unchecked() }
-    }
-
     /// Initializes the contents of the cell to `value` if the cell was uninitialized,
     /// then returns a reference to it.
     ///
