@@ -163,14 +163,14 @@ async fn init_error() {
 async fn get_mut_or_init() {
     let mut cell: OnceCell<u32> = OnceCell::new();
     let v = cell
-        .get_mut_or_init(|| async {
+        .get_mut_or_init(async || {
             tokio::time::sleep(Duration::from_millis(1)).await;
             41
         })
         .await;
     *v += 1;
 
-    let v = tokio::spawn(async move { *cell.get_or_init(|| async { 0 }).await })
+    let v = tokio::spawn(async move { *cell.get_or_init(async || 0).await })
         .await
         .unwrap();
     assert_eq!(v, 42);
@@ -180,7 +180,7 @@ async fn get_mut_or_init() {
 async fn get_mut_or_try_init() {
     let mut cell: OnceCell<u32> = OnceCell::new();
     let r = cell
-        .get_mut_or_try_init(|| async {
+        .get_mut_or_try_init(async || {
             tokio::time::sleep(Duration::from_millis(1)).await;
             Err(())
         })
@@ -190,7 +190,7 @@ async fn get_mut_or_try_init() {
 
     let v = tokio::spawn(async move {
         let v = cell
-            .get_mut_or_try_init(|| async { Ok::<_, ()>(10) })
+            .get_mut_or_try_init(async || Ok::<_, ()>(10))
             .await
             .unwrap();
         *v += 5;
