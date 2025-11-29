@@ -99,7 +99,6 @@ impl<T> OnceCell<T> {
     /// This method never blocks.
     pub fn get(&self) -> Option<&T> {
         if self.initialized() {
-            // SAFETY: checked is_initialized
             Some(unsafe { self.get_unchecked() })
         } else {
             None
@@ -114,7 +113,6 @@ impl<T> OnceCell<T> {
     /// guaranteed that no active borrows to the `OnceCell` exist, including from other threads.
     pub fn get_mut(&mut self) -> Option<&mut T> {
         if self.initialized_mut() {
-            // SAFETY: checked is_initialized and we have a unique access
             Some(unsafe { self.get_unchecked_mut() })
         } else {
             None
@@ -217,7 +215,6 @@ impl<T> OnceCell<T> {
         // Workaround if let Some(v) = self.get_mut() { return v; }
         // @see https://github.com/rust-lang/rust/issues/51545
         if self.initialized_mut() {
-            // SAFETY: checked is_initialized and we have a unique access
             return unsafe { self.get_unchecked_mut() };
         }
 
@@ -266,7 +263,6 @@ impl<T> OnceCell<T> {
         // Workaround if let Some(v) = self.get_mut() { return Ok(v); }
         // @see https://github.com/rust-lang/rust/issues/51545
         if self.initialized_mut() {
-            // SAFETY: checked is_initialized and we have a unique access
             return Ok(unsafe { self.get_unchecked_mut() });
         }
 
