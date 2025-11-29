@@ -202,8 +202,6 @@ impl<T> OnceCell<T> {
     /// Otherwise, it runs `init`, stores the result, and returns a mutable reference to the newly
     /// initialized value.
     ///
-    /// This will deadlock if `init` tries to initialize the cell recursively.
-    ///
     /// # Examples
     ///
     /// ```
@@ -245,8 +243,6 @@ impl<T> OnceCell<T> {
     /// Otherwise, it runs `init`. On success, it stores the result and returns a mutable
     /// reference to the newly initialized value. On error, it returns the error and leaves the
     /// cell uninitialized.
-    ///
-    /// This will deadlock if `init` tries to initialize the cell recursively.
     ///
     /// # Examples
     ///
