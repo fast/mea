@@ -270,6 +270,168 @@ impl<T> OnceCell<T> {
         Ok(self.set_value_mut(value))
     }
 
+    /// Wait until the cell is initialized.
+    ///
+    /// # Example
+    ///
+    /// Waiting for a computation on another thread to finish:
+    ///
+    /// ```rust
+    /// use mea::once::OnceCell;
+    /// # use std::time::Duration;
+    ///
+    /// static CELL: OnceCell<i32> = OnceCell::new();
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() {
+    /// tokio::spawn(async {
+    ///     tokio::time::sleep(Duration::from_millis(10));
+    ///     assert_eq!(CELL.set(92).await, Ok(()));
+    /// });
+    ///
+    /// assert_eq!(CELL.wait().await, &92);
+    /// # }
+    /// ```
+    pub async fn wait(&self) -> &T {
+        while !self.initialized() {
+            let _ = self.semaphore.acquire(1).await;
+        }
+
+        // SAFETY: the cell must be initialized when break the while loop
+        unsafe { self.get_unchecked() }
+    }
+
+    /// Initializes the contents of the cell to `value` if the cell was uninitialized,
+    /// then returns a reference to it.
+    ///
+    /// May pending if another thread is currently attempting to initialize the cell. The cell is
+    /// guaranteed to contain a value when `try_insert` returns, though not necessarily the
+    /// one provided.
+    ///
+    /// Returns `Ok(&value)` if the cell was uninitialized and `Err((&current_value, value))`
+    /// if it was already initialized.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mea::once::OnceCell;
+    ///
+    /// static CELL: OnceCell<i32> = OnceCell::new();
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() {
+    /// assert!(CELL.get().is_none());
+    ///
+    /// tokio::spawn(async {
+    ///     assert_eq!(CELL.try_insert(92).await, Ok(&92));
+    /// })
+    /// .await
+    /// .unwrap();
+    ///
+    /// assert_eq!(CELL.try_insert(62).await, Err((&92, 62)));
+    /// assert_eq!(CELL.get(), Some(&92));
+    /// # }
+    /// ```
+    pub async fn try_insert(&self, value: T) -> Result<&T, (&T, T)> {
+        let mut value = Some(value);
+        let res = self.get_or_init(async || value.take().unwrap()).await;
+        match value {
+            None => Ok(res),
+            Some(value) => Err((res, value)),
+        }
+    }
+
+    /// Initializes the contents of the cell to `value`.
+    ///
+    /// May pending if another thread is currently attempting to initialize the cell. The cell is
+    /// guaranteed to contain a value when `set` returns, though not necessarily the one provided.
+    ///
+    /// Returns `Ok(())` if the cell was uninitialized and `Err(value)` if the cell was already
+    /// initialized.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mea::once::OnceCell;
+    ///
+    /// static CELL: OnceCell<i32> = OnceCell::new();
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() {
+    /// assert!(CELL.get().is_none());
+    ///
+    /// tokio::spawn(async {
+    ///     assert_eq!(CELL.set(92).await, Ok(()));
+    /// })
+    /// .await
+    /// .unwrap();
+    ///
+    /// assert_eq!(CELL.set(62).await, Err(62));
+    /// assert_eq!(CELL.get(), Some(&92));
+    /// # }
+    /// ```
+    pub async fn set(&self, value: T) -> Result<(), T> {
+        match self.try_insert(value).await {
+            Ok(_) => Ok(()),
+            Err((_, value)) => Err(value),
+        }
+    }
+
+    /// Consumes the `OnceCell`, returning the wrapped value. Returns `None` if the cell was
+    /// uninitialized.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mea::once::OnceCell;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() {
+    /// let cell: OnceCell<String> = OnceCell::new();
+    /// assert_eq!(cell.into_inner(), None);
+    ///
+    /// let cell = OnceCell::new();
+    /// cell.set("hello".to_string()).await.unwrap();
+    /// assert_eq!(cell.into_inner(), Some("hello".to_string()));
+    /// # }
+    /// ```
+    pub fn into_inner(mut self) -> Option<T> {
+        if self.initialized_mut() {
+            // set to uninitialized for the destructor of `OnceCell` to work properly
+            *self.value_set.get_mut() = false;
+            Some(unsafe { self.value.get_mut().assume_init_read() })
+        } else {
+            None
+        }
+    }
+
+    /// Takes the value out of this `OnceCell`, moving it back to an uninitialized state.
+    ///
+    /// Has no effect and returns `None` if the `OnceCell` was uninitialized.
+    ///
+    /// Since this method borrows the `OnceCell` mutably, it is statically guaranteed that
+    /// no active borrows to the `OnceCell` exist, including from other threads.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mea::once::OnceCell;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() {
+    /// let mut cell: OnceCell<String> = OnceCell::new();
+    /// assert_eq!(cell.take(), None);
+    ///
+    /// let mut cell = OnceCell::new();
+    /// cell.set("hello".to_string()).await.unwrap();
+    /// assert_eq!(cell.take(), Some("hello".to_string()));
+    /// assert_eq!(cell.get(), None);
+    /// # }
+    /// ```
+    pub fn take(&mut self) -> Option<T> {
+        std::mem::take(self).into_inner()
+    }
+
     /// # Safety
     ///
     /// The cell must be initialized
