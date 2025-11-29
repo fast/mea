@@ -20,7 +20,6 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use crate::semaphore::Semaphore;
-use crate::semaphore::SemaphorePermit;
 
 /// A thread-safe cell which can nominally be written to only once.
 ///
@@ -145,7 +144,13 @@ impl<T> OnceCell<T> {
         }
 
         let value = init().await;
-        self.set_value(value, permit)
+        // SAFETY: holding the permit ensures exclusive access
+        unsafe {
+            self.set_value(value);
+        }
+        std::mem::drop(permit);
+        // SAFETY: value initialized above
+        unsafe { self.get_unchecked() }
     }
 
     /// Gets the reference to the internal value, initializing it with the provided asynchronous
@@ -176,9 +181,108 @@ impl<T> OnceCell<T> {
             return Ok(v);
         }
 
-        match init().await {
-            Ok(v) => Ok(self.set_value(v, permit)),
-            Err(err) => Err(err),
+        let value = init().await?;
+        // SAFETY: holding the permit ensures exclusive access
+        unsafe {
+            self.set_value(value);
+        }
+        std::mem::drop(permit);
+        // SAFETY: value initialized above
+        unsafe { Ok(self.get_unchecked()) }
+    }
+
+    /// Gets a mutable reference to the internal value, initializing it with the provided
+    /// asynchronous function if it is not set yet.
+    ///
+    /// This method never blocks other tasks because it takes `&mut self`, which guarantees
+    /// exclusive access to the `OnceCell` and thus no concurrent initialization can be in
+    /// progress.
+    ///
+    /// If the cell is already initialized, it returns a mutable reference to the existing value.
+    /// Otherwise, it runs `init`, stores the result, and returns a mutable reference to the newly
+    /// initialized value.
+    ///
+    /// This will deadlock if `init` tries to initialize the cell recursively.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[tokio::main]
+    /// # async fn main() {
+    /// use mea::once::OnceCell;
+    ///
+    /// let mut cell: OnceCell<u32> = OnceCell::new();
+    /// let v = cell.get_mut_or_init(|| async { 41 }).await;
+    /// *v += 1;
+    /// assert_eq!(*cell.get().unwrap(), 42);
+    /// # }
+    /// ```
+    pub async fn get_mut_or_init<F, Fut>(&mut self, init: F) -> &mut T
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = T>,
+    {
+        if self.is_initialized() {
+            unsafe { self.get_unchecked_mut() }
+        } else {
+            let value = init().await;
+            // SAFETY: we have exclusive access via holding &mut self
+            unsafe {
+                self.set_value(value);
+                self.get_unchecked_mut()
+            }
+        }
+    }
+
+    /// Gets a mutable reference to the internal value, initializing it with the provided
+    /// asynchronous function that may fail if it is not set yet.
+    ///
+    /// This method never blocks other tasks because it takes `&mut self`, which guarantees
+    /// exclusive access to the `OnceCell` and thus no concurrent initialization can be in
+    /// progress.
+    ///
+    /// If the cell is already initialized, it returns a mutable reference to the existing value.
+    /// Otherwise, it runs `init`. On success, it stores the result and returns a mutable
+    /// reference to the newly initialized value. On error, it returns the error and leaves the
+    /// cell uninitialized.
+    ///
+    /// This will deadlock if `init` tries to initialize the cell recursively.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[tokio::main]
+    /// # async fn main() {
+    /// use mea::once::OnceCell;
+    ///
+    /// let mut cell: OnceCell<u32> = OnceCell::new();
+    /// assert!(
+    ///     cell.get_mut_or_try_init(|| async { Err(()) })
+    ///         .await
+    ///         .is_err()
+    /// );
+    /// let v = cell
+    ///     .get_mut_or_try_init(|| async { Ok::<_, ()>(10) })
+    ///     .await
+    ///     .unwrap();
+    /// *v += 5;
+    /// assert_eq!(*cell.get().unwrap(), 15);
+    /// # }
+    /// ```
+    pub async fn get_mut_or_try_init<E, F, Fut>(&mut self, init: F) -> Result<&mut T, E>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<T, E>>,
+    {
+        if self.is_initialized() {
+            return Ok(unsafe { self.get_unchecked_mut() });
+        }
+
+        let value = init().await?;
+        // SAFETY: we have exclusive access via holding &mut self
+        unsafe {
+            self.set_value(value);
+            Ok(self.get_unchecked_mut())
         }
     }
 
@@ -200,19 +304,17 @@ impl<T> OnceCell<T> {
         unsafe { (&mut *self.value.get()).assume_init_mut() }
     }
 
-    fn set_value(&self, value: T, permit: SemaphorePermit<'_>) -> &T {
-        // Hold the permit to ensure exclusive access.
-        let _permit = permit;
-
+    /// # Safety
+    ///
+    /// This method must be accessed exclusively, e.g. holding the semaphore permit or via `&mut
+    /// self`.
+    unsafe fn set_value(&self, value: T) {
         let value_ptr = self.value.get();
         unsafe { value_ptr.write(MaybeUninit::new(value)) };
 
         // Use `store` with `Release` ordering to ensure that when loading it with `Acquire`
         // ordering, the initialized value is visible.
         self.value_set.store(true, Ordering::Release);
-
-        // SAFETY: value initialized above
-        unsafe { self.get_unchecked() }
     }
 }
 
