@@ -273,7 +273,7 @@ impl<T> OnceCell<T> {
     /// Initializes the contents of the cell to `value` if the cell was uninitialized,
     /// then returns a reference to it.
     ///
-    /// May pending if another thread is currently attempting to initialize the cell. The cell is
+    /// May wait if another thread is currently attempting to initialize the cell. The cell is
     /// guaranteed to contain a value when `try_insert` returns, though not necessarily the
     /// one provided.
     ///
@@ -312,7 +312,7 @@ impl<T> OnceCell<T> {
 
     /// Initializes the contents of the cell to `value`.
     ///
-    /// May pending if another thread is currently attempting to initialize the cell. The cell is
+    /// May wait if another thread is currently attempting to initialize the cell. The cell is
     /// guaranteed to contain a value when `set` returns, though not necessarily the one provided.
     ///
     /// Returns `Ok(())` if the cell was uninitialized and `Err(value)` if the cell was already
