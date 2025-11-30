@@ -14,7 +14,6 @@
 
 use std::cell::UnsafeCell;
 use std::fmt;
-use std::future::Future;
 use std::mem::MaybeUninit;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -130,10 +129,9 @@ impl<T> OnceCell<T> {
     /// attempt at initializing the value.
     ///
     /// This will deadlock if `init` tries to initialize the cell recursively.
-    pub async fn get_or_init<F, Fut>(&self, init: F) -> &T
+    pub async fn get_or_init<F>(&self, init: F) -> &T
     where
-        F: FnOnce() -> Fut,
-        Fut: Future<Output = T>,
+        F: AsyncFnOnce() -> T,
     {
         if let Some(v) = self.get() {
             return v;
@@ -162,10 +160,9 @@ impl<T> OnceCell<T> {
     /// one of them will start another attempt at initializing the value.
     ///
     /// This will deadlock if `init` tries to initialize the cell recursively.
-    pub async fn get_or_try_init<E, F, Fut>(&self, init: F) -> Result<&T, E>
+    pub async fn get_or_try_init<E, F>(&self, init: F) -> Result<&T, E>
     where
-        F: FnOnce() -> Fut,
-        Fut: Future<Output = Result<T, E>>,
+        F: AsyncFnOnce() -> Result<T, E>,
     {
         if let Some(v) = self.get() {
             return Ok(v);
@@ -207,10 +204,9 @@ impl<T> OnceCell<T> {
     /// assert_eq!(*cell.get().unwrap(), 42);
     /// # }
     /// ```
-    pub async fn get_mut_or_init<F, Fut>(&mut self, init: F) -> &mut T
+    pub async fn get_mut_or_init<F>(&mut self, init: F) -> &mut T
     where
-        F: FnOnce() -> Fut,
-        Fut: Future<Output = T>,
+        F: AsyncFnOnce() -> T,
     {
         // Workaround if let Some(v) = self.get_mut() { return v; }
         // @see https://github.com/rust-lang/rust/issues/51545
@@ -255,10 +251,9 @@ impl<T> OnceCell<T> {
     /// assert_eq!(*cell.get().unwrap(), 15);
     /// # }
     /// ```
-    pub async fn get_mut_or_try_init<E, F, Fut>(&mut self, init: F) -> Result<&mut T, E>
+    pub async fn get_mut_or_try_init<E, F>(&mut self, init: F) -> Result<&mut T, E>
     where
-        F: FnOnce() -> Fut,
-        Fut: Future<Output = Result<T, E>>,
+        F: AsyncFnOnce() -> Result<T, E>,
     {
         // Workaround if let Some(v) = self.get_mut() { return Ok(v); }
         // @see https://github.com/rust-lang/rust/issues/51545
