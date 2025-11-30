@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::cell::UnsafeCell;
+use std::convert::Infallible;
 use std::fmt;
 use std::mem::MaybeUninit;
 use std::sync::atomic::AtomicBool;
@@ -133,20 +134,12 @@ impl<T> OnceCell<T> {
     where
         F: AsyncFnOnce() -> T,
     {
-        if let Some(v) = self.get() {
-            return v;
+        match self
+            .get_or_try_init(async || Ok::<T, Infallible>(init().await))
+            .await
+        {
+            Ok(val) => val,
         }
-
-        let permit = self.semaphore.acquire(1).await;
-
-        if let Some(v) = self.get() {
-            // double-checked: another task initialized the value
-            // while we were waiting for the permit
-            return v;
-        }
-
-        let value = init().await;
-        self.set_value(value, permit)
     }
 
     /// Gets the reference to the internal value, initializing it with the provided asynchronous
@@ -208,14 +201,12 @@ impl<T> OnceCell<T> {
     where
         F: AsyncFnOnce() -> T,
     {
-        // Workaround if let Some(v) = self.get_mut() { return v; }
-        // @see https://github.com/rust-lang/rust/issues/51545
-        if self.initialized_mut() {
-            return unsafe { self.get_unchecked_mut() };
+        match self
+            .get_mut_or_try_init(async || Ok::<T, Infallible>(init().await))
+            .await
+        {
+            Ok(val) => val,
         }
-
-        let value = init().await;
-        self.set_value_mut(value)
     }
 
     /// Gets a mutable reference to the internal value, initializing it with the provided
@@ -440,7 +431,7 @@ impl<T> Drop for OnceCell<T> {
     fn drop(&mut self) {
         if self.initialized_mut() {
             // SAFETY: The cell is initialized and being dropped, so it can't be accessed again.
-            unsafe { (&mut *self.value.get()).assume_init_drop() };
+            unsafe { self.value.get_mut().assume_init_drop() };
         }
     }
 }
