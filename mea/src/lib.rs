@@ -96,6 +96,7 @@ mod tests {
     use crate::mpsc;
     use crate::mutex::Mutex;
     use crate::mutex::MutexGuard;
+    use crate::once::Once;
     use crate::once::OnceCell;
     use crate::oneshot;
     use crate::rwlock::RwLock;
@@ -112,6 +113,7 @@ mod tests {
         fn do_assert_send_and_sync<T: Send + Sync>() {}
         do_assert_send_and_sync::<Barrier>();
         do_assert_send_and_sync::<Condvar>();
+        do_assert_send_and_sync::<Once>();
         do_assert_send_and_sync::<OnceCell<u32>>();
         do_assert_send_and_sync::<Latch>();
         do_assert_send_and_sync::<Semaphore>();
@@ -145,6 +147,8 @@ mod tests {
         do_assert_unpin::<Barrier>();
         do_assert_unpin::<Condvar>();
         do_assert_unpin::<Latch>();
+        do_assert_unpin::<Once>();
+        do_assert_unpin::<OnceCell<u32>>();
         do_assert_unpin::<Semaphore>();
         do_assert_unpin::<ShutdownSend>();
         do_assert_unpin::<ShutdownRecv>();
