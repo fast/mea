@@ -19,6 +19,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use tokio::sync::Mutex;
+use tokio_test::assert_ready;
 
 use super::Once;
 use super::once_cell::OnceCell;
@@ -335,4 +336,26 @@ async fn test_once_retry_after_panic() {
 
     assert_eq!(COUNTER.load(Ordering::SeqCst), 2);
     assert!(ONCE.is_completed());
+}
+
+#[tokio::test]
+async fn test_once_wait() {
+    // wait after call_once completed
+    {
+        let once = Once::new();
+        once.call_once(async || {}).await;
+        assert_ready!(tokio_test::task::spawn(once.wait()).poll());
+    }
+
+    // wait before call_once completed
+    {
+        static ONCE: Once = Once::new();
+        let handle = tokio::spawn(async {
+            ONCE.wait().await;
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        ONCE.call_once(async || {}).await;
+        handle.await.unwrap();
+    }
 }
