@@ -59,7 +59,7 @@
 //! [`Condvar`]: condvar::Condvar
 //! [`Latch`]: latch::Latch
 //! [`Mutex`]: mutex::Mutex
-//! [`OnceCell`]: once::Once
+//! [`Once`]: once::Once
 //! [`OnceCell`]: once::OnceCell
 //! [`RwLock`]: rwlock::RwLock
 //! [`Semaphore`]: semaphore::Semaphore
