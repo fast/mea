@@ -59,15 +59,15 @@
 //! [`Condvar`]: condvar::Condvar
 //! [`Latch`]: latch::Latch
 //! [`Mutex`]: mutex::Mutex
+//! [`OnceCell`]: once::Once
 //! [`OnceCell`]: once::OnceCell
 //! [`RwLock`]: rwlock::RwLock
 //! [`Semaphore`]: semaphore::Semaphore
 //! [`ShutdownSend`]: shutdown::ShutdownSend
 //! [`ShutdownRecv`]: shutdown::ShutdownRecv
 //! [`WaitGroup`]: waitgroup::WaitGroup
-use crate::once::Once;
 
-pub(crate) mod internal;
+mod internal;
 
 pub mod atomicbox;
 pub mod barrier;
