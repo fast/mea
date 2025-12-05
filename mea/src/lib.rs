@@ -71,6 +71,7 @@ mod internal;
 
 pub mod atomicbox;
 pub mod barrier;
+pub mod broadcast;
 pub mod condvar;
 pub mod latch;
 pub mod mpsc;
