@@ -69,7 +69,7 @@ async fn test_broadcast_lagged_multi() {
 async fn test_broadcast_closed() {
     let (tx, mut rx) = channel::<i32>(10);
     drop(tx);
-    assert_eq!(rx.recv().await, Err(RecvError::Closed));
+    assert_eq!(rx.recv().await, Err(RecvError::Disconnected));
 }
 
 #[tokio::test]
@@ -144,4 +144,34 @@ async fn test_overflow() {
     assert_eq!(rx.recv().await, Ok(3));
     tx.send(4);
     assert_eq!(rx.recv().await, Ok(4));
+}
+
+#[tokio::test]
+async fn test_try_recv() {
+    let (tx, mut rx) = channel(16);
+
+    // Empty
+    assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
+
+    // Success
+    tx.send(10);
+    assert_eq!(rx.try_recv(), Ok(10));
+    assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
+
+    // Closed
+    drop(tx);
+    assert_eq!(rx.try_recv(), Err(TryRecvError::Disconnected));
+}
+
+#[tokio::test]
+async fn test_try_recv_lagged() {
+    let (tx, mut rx) = channel(2);
+    tx.send(1);
+    tx.send(2);
+    tx.send(3);
+
+    assert_eq!(rx.try_recv(), Err(TryRecvError::Lagged(1)));
+    assert_eq!(rx.try_recv(), Ok(2));
+    assert_eq!(rx.try_recv(), Ok(3));
+    assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
 }

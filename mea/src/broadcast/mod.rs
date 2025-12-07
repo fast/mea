@@ -25,8 +25,8 @@
 //! ```
 //! use mea::broadcast;
 //!
-//! #[tokio::main]
-//! async fn main() {
+//! # #[tokio::main]
+//! # async fn main() {
 //!     let (tx, mut rx1) = broadcast::channel(16);
 //!     let mut rx2 = tx.subscribe();
 //!
@@ -37,7 +37,7 @@
 //!     assert_eq!(rx1.recv().await, Ok(20));
 //!     assert_eq!(rx2.recv().await, Ok(10));
 //!     assert_eq!(rx2.recv().await, Ok(20));
-//! }
+//! # }
 //! ```
 //!
 //! Handling lag:
@@ -46,18 +46,18 @@
 //! use mea::broadcast;
 //! use mea::broadcast::RecvError;
 //!
-//! #[tokio::main]
-//! async fn main() {
+//! # #[tokio::main]
+//! # async fn main() {
 //!     let (tx, mut rx) = broadcast::channel(2);
 //!
 //!     tx.send(1);
 //!     tx.send(2);
-//!     tx.send(3); // Overwrites 1
+//!     tx.send(3); // overwrites the oldest message (1)
 //!
 //!     assert_eq!(rx.recv().await, Err(RecvError::Lagged(1)));
 //!     assert_eq!(rx.recv().await, Ok(2));
 //!     assert_eq!(rx.recv().await, Ok(3));
-//! }
+//! # }
 //! ```
 
 use std::fmt;
@@ -76,6 +76,49 @@ use crate::internal::WaitSet;
 #[cfg(test)]
 mod tests;
 
+/// Creates a new broadcast channel with the given capacity.
+///
+/// The channel implements a "tail drop" policy: if the buffer is full, new messages
+/// overwrite the oldest ones.
+///
+/// # Panics
+///
+/// Panics if `capacity` is 0.
+///
+/// # Examples
+///
+/// ```
+/// use mea::broadcast;
+///
+/// let (tx, mut rx) = broadcast::channel(16);
+/// tx.send(10);
+/// assert_eq!(rx.try_recv(), Ok(10));
+/// ```
+pub fn channel<T: Clone>(capacity: usize) -> (Sender<T>, Receiver<T>) {
+    assert!(capacity > 0, "capacity must be greater than 0");
+
+    let mut buffer = Vec::with_capacity(capacity);
+    for _ in 0..capacity {
+        buffer.push(RwLock::new(Slot {
+            msg: None,
+            version: 0,
+        }));
+    }
+
+    let shared = Arc::new(Shared {
+        buffer: buffer.into_boxed_slice(),
+        capacity,
+        tail_cnt: AtomicUsize::new(0),
+        senders: AtomicUsize::new(1),
+        waiters: Mutex::new(WaitSet::new()),
+    });
+    let sender = Sender {
+        shared: shared.clone(),
+    };
+    let receiver = Receiver { shared, head: 0 };
+    (sender, receiver)
+}
+
 /// Error returned by [`Receiver::recv`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecvError {
@@ -84,20 +127,47 @@ pub enum RecvError {
     /// The count is the number of messages skipped. The receiver's internal cursor has been
     /// advanced to the oldest available message.
     Lagged(usize),
-    /// The channel has been closed.
-    Closed,
+    /// The sender has become disconnected, and there will never be any more data received on it.
+    Disconnected,
 }
 
 impl fmt::Display for RecvError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RecvError::Lagged(n) => write!(f, "receiver lagged by {n}"),
-            RecvError::Closed => write!(f, "channel closed"),
+            RecvError::Lagged(n) => write!(f, "receiver has been lagged by {n}"),
+            RecvError::Disconnected => write!(f, "receiving on a closed channel"),
         }
     }
 }
 
 impl std::error::Error for RecvError {}
+
+/// Error returned by [`Receiver::try_recv`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TryRecvError {
+    /// This channel is currently empty, but the sender(s) have not yet disconnected, so data may
+    /// yet become available.
+    Empty,
+    /// The receiver lagged too far behind.
+    ///
+    /// The count is the number of messages skipped. The receiver's internal cursor has been
+    /// advanced to the oldest available message.
+    Lagged(usize),
+    /// The sender has become disconnected, and there will never be any more data received on it.
+    Disconnected,
+}
+
+impl fmt::Display for TryRecvError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TryRecvError::Empty => write!(f, "receiving on an empty channel"),
+            TryRecvError::Lagged(n) => write!(f, "receiver has been lagged by {n}"),
+            TryRecvError::Disconnected => write!(f, "receiving on a closed channel"),
+        }
+    }
+}
+
+impl std::error::Error for TryRecvError {}
 
 #[derive(Debug)]
 struct Slot<T> {
@@ -129,7 +199,7 @@ pub struct Sender<T> {
 
 impl<T> Clone for Sender<T> {
     fn clone(&self) -> Self {
-        self.shared.senders.fetch_add(1, Ordering::Relaxed);
+        self.shared.senders.fetch_add(1, Ordering::Release);
         Self {
             shared: self.shared.clone(),
         }
@@ -138,11 +208,15 @@ impl<T> Clone for Sender<T> {
 
 impl<T> Drop for Sender<T> {
     fn drop(&mut self) {
-        // Use Release to ensure all previous writes are visible to the receiver
-        // that observes the 0 count.
-        if self.shared.senders.fetch_sub(1, Ordering::Release) == 1 {
-            // Wake all receivers so they can see the Closed state.
-            self.shared.waiters.lock().wake_all();
+        match self.shared.senders.fetch_sub(1, Ordering::AcqRel) {
+            1 => {
+                // If this is the last sender, we need to wake up the receiver so it can
+                // observe the disconnected state.
+                self.shared.waiters.lock().wake_all();
+            }
+            _ => {
+                // there are still other senders left, do nothing
+            }
         }
     }
 }
@@ -153,6 +227,16 @@ impl<T> Sender<T> {
     /// This operation is non-blocking. If the channel buffer is full, the oldest message
     /// in the buffer is overwritten. Any receiver that was waiting for that overwritten
     /// message will receive a [`RecvError::Lagged`] error on its next call to `recv`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mea::broadcast;
+    ///
+    /// let (tx, mut rx) = broadcast::channel(16);
+    /// tx.send(10);
+    /// assert_eq!(rx.try_recv(), Ok(10));
+    /// ```
     pub fn send(&self, msg: T) {
         let tail = self.shared.tail_cnt.fetch_add(1, Ordering::SeqCst);
         let idx = tail % self.shared.capacity;
@@ -173,21 +257,24 @@ impl<T> Sender<T> {
     ///
     /// ```
     /// use mea::broadcast;
+    /// use mea::broadcast::TryRecvError;
     ///
+    /// # #[tokio::main]
+    /// # async fn main() {
     /// let (tx, _) = broadcast::channel(16);
     /// tx.send(10);
     ///
     /// let mut rx = tx.subscribe();
+    /// assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
     /// tx.send(20);
     /// assert_eq!(rx.recv().await, Ok(20));
+    /// # }
     /// ```
     pub fn subscribe(&self) -> Receiver<T> {
-        let tail = self.shared.tail_cnt.load(Ordering::SeqCst);
-        Receiver {
-            shared: self.shared.clone(),
-            head: tail,
-            waker_key: None,
-        }
+        // Receiver starts at the current tail.
+        let head = self.shared.tail_cnt.load(Ordering::SeqCst);
+        let shared = self.shared.clone();
+        Receiver { shared, head }
     }
 }
 
@@ -197,10 +284,7 @@ impl<T> Sender<T> {
 /// message sent to the channel (unless it lags behind).
 pub struct Receiver<T> {
     shared: Arc<Shared<T>>,
-    /// The next message to read.
     head: usize,
-    /// Key for the WaitSet to identify this receiver's waker.
-    waker_key: Option<usize>,
 }
 
 impl<T> Clone for Receiver<T> {
@@ -208,7 +292,6 @@ impl<T> Clone for Receiver<T> {
         Self {
             shared: self.shared.clone(),
             head: self.head,
-            waker_key: None,
         }
     }
 }
@@ -216,7 +299,7 @@ impl<T> Clone for Receiver<T> {
 impl<T: Clone> Receiver<T> {
     /// Receives the next value for this receiver.
     ///
-    /// # Return Value
+    /// # Returns
     ///
     /// * `Ok(T)`: The next message.
     /// * `Err(RecvError::Lagged(usize))`: The receiver lagged behind. The internal cursor is
@@ -224,8 +307,91 @@ impl<T: Clone> Receiver<T> {
     ///   skipped.
     /// * `Err(RecvError::Closed)`: All senders have been dropped and no more messages are
     ///   available.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mea::broadcast;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() {
+    ///     let (tx, mut rx) = broadcast::channel(16);
+    ///     tx.send(10);
+    ///     assert_eq!(rx.recv().await, Ok(10));
+    /// # }
+    /// ```
     pub async fn recv(&mut self) -> Result<T, RecvError> {
-        RecvFuture { receiver: self }.await
+        Recv {
+            receiver: self,
+            idx: None,
+        }
+        .await
+    }
+
+    /// Attempts to receive the next value for this receiver without blocking.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(T)`: The next message.
+    /// * `Err(TryRecvError::Empty)`: No message is currently available.
+    /// * `Err(TryRecvError::Lagged(usize))`: The receiver lagged behind. The internal cursor is
+    ///   advanced to the oldest available message. The count indicates how many messages were
+    ///   skipped.
+    /// * `Err(TryRecvError::Closed)`: All senders have been dropped and no more messages are
+    ///   available.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mea::broadcast;
+    ///
+    /// let (tx, mut rx) = broadcast::channel(16);
+    /// tx.send(10);
+    /// assert_eq!(rx.try_recv(), Ok(10));
+    /// ```
+    pub fn try_recv(&mut self) -> Result<T, TryRecvError> {
+        let shared = &self.shared;
+        let cap = shared.capacity;
+
+        loop {
+            let tail = shared.tail_cnt.load(Ordering::SeqCst);
+            let head = self.head;
+
+            // diff represents how far behind the head is from the tail.
+            let diff = tail.wrapping_sub(head);
+
+            // 1. Check for Lag
+            if diff > cap {
+                let missed = diff - cap;
+                self.head = tail.wrapping_sub(cap);
+                return Err(TryRecvError::Lagged(missed));
+            }
+
+            // 2. Check if a message is available
+            if diff > 0 {
+                let idx = head % cap;
+                let slot = shared.buffer[idx].read();
+
+                if slot.version == head {
+                    if let Some(msg) = &slot.msg {
+                        self.head = head.wrapping_add(1);
+                        return Ok(msg.clone());
+                    }
+                }
+
+                // If version != head, the slot was overwritten.
+                // Loop back to re-check lag against the new tail.
+                drop(slot);
+                continue;
+            }
+
+            // 3. No message available (diff == 0). Check for Closed.
+            if shared.senders.load(Ordering::Acquire) == 0 {
+                return Err(TryRecvError::Disconnected);
+            }
+
+            return Err(TryRecvError::Empty);
+        }
     }
 }
 
@@ -235,31 +401,46 @@ impl<T> Receiver<T> {
     ///
     /// This is useful if the receiver has lagged too far behind and wants to jump to the latest
     /// message, skipping everything in between.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mea::broadcast;
+    ///
+    /// let (tx, mut rx) = broadcast::channel(2);
+    /// tx.send(1);
+    /// tx.send(2);
+    ///
+    /// let mut rx2 = rx.resubscribe();
+    /// tx.send(3);
+    ///
+    /// assert_eq!(rx2.try_recv(), Ok(3));
+    /// ```
     pub fn resubscribe(&self) -> Self {
-        let tail = self.shared.tail_cnt.load(Ordering::SeqCst);
-        Self {
-            shared: self.shared.clone(),
-            head: tail,
-            waker_key: None,
-        }
+        // Resubscribe starts at the current tail.
+        let head = self.shared.tail_cnt.load(Ordering::SeqCst);
+        let shared = self.shared.clone();
+        Self { shared, head }
     }
 }
 
-struct RecvFuture<'a, T> {
+struct Recv<'a, T> {
     receiver: &'a mut Receiver<T>,
+    idx: Option<usize>,
 }
 
-impl<T: Clone> Future for RecvFuture<'_, T> {
+impl<T: Clone> Future for Recv<'_, T> {
     type Output = Result<T, RecvError>;
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let receiver = &mut self.receiver;
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let Self { receiver, idx } = self.get_mut();
         let shared = &receiver.shared;
         let cap = shared.capacity;
 
         loop {
             let tail = shared.tail_cnt.load(Ordering::SeqCst);
             let head = receiver.head;
+
             // Use wrapping subtraction to correctly handle usize overflow.
             // diff represents how far behind the head is from the tail.
             let diff = tail.wrapping_sub(head);
@@ -299,7 +480,7 @@ impl<T: Clone> Future for RecvFuture<'_, T> {
 
             // Double check tail to avoid race conditions.
             let tail_now = shared.tail_cnt.load(Ordering::SeqCst);
-            if tail_now.wrapping_sub(head) > 0 {
+            if tail_now != head {
                 // New message arrived while acquiring the lock. Retry.
                 drop(waiters);
                 continue;
@@ -308,52 +489,12 @@ impl<T: Clone> Future for RecvFuture<'_, T> {
             // 4. Check for Closed
             // Use Acquire to ensure we see all writes before the sender dropped.
             if shared.senders.load(Ordering::Acquire) == 0 {
-                return Poll::Ready(Err(RecvError::Closed));
+                return Poll::Ready(Err(RecvError::Disconnected));
             }
 
             // 5. Register Waker
-            waiters.register_waker(&mut receiver.waker_key, cx);
+            waiters.register_waker(idx, cx);
             return Poll::Pending;
         }
     }
-}
-
-/// Creates a new broadcast channel with the given capacity.
-///
-/// The channel implements a "tail drop" policy: if the buffer is full, new messages
-/// overwrite the oldest ones.
-///
-/// # Panics
-///
-/// Panics if `capacity` is 0.
-pub fn channel<T: Clone>(capacity: usize) -> (Sender<T>, Receiver<T>) {
-    assert!(capacity > 0, "capacity must be greater than 0");
-
-    let mut buffer = Vec::with_capacity(capacity);
-    for _ in 0..capacity {
-        buffer.push(RwLock::new(Slot {
-            msg: None,
-            version: 0,
-        }));
-    }
-
-    let shared = Arc::new(Shared {
-        buffer: buffer.into_boxed_slice(),
-        capacity,
-        tail_cnt: AtomicUsize::new(0),
-        senders: AtomicUsize::new(1),
-        waiters: Mutex::new(WaitSet::new()),
-    });
-
-    let sender = Sender {
-        shared: shared.clone(),
-    };
-
-    let receiver = Receiver {
-        shared,
-        head: 0,
-        waker_key: None,
-    };
-
-    (sender, receiver)
 }
