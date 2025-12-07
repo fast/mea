@@ -129,38 +129,13 @@ async fn test_resubscribe() {
 }
 
 #[tokio::test]
-async fn test_len_empty() {
-    let (tx, _rx) = channel::<i32>(10);
-    assert!(tx.is_empty());
-    assert_eq!(tx.len(), 0);
-
-    tx.send(1);
-    assert!(!tx.is_empty());
-    assert_eq!(tx.len(), 1);
-
-    for i in 0..15 {
-        tx.send(i);
-    }
-    // Cap is 10
-    assert_eq!(tx.len(), 10);
-}
-
-#[tokio::test]
-async fn test_sender_count() {
-    let (tx, _rx) = channel::<i32>(10);
-    assert_eq!(tx.sender_count(), 1);
-    let tx2 = tx.clone();
-    assert_eq!(tx.sender_count(), 2);
-    drop(tx2);
-    assert_eq!(tx.sender_count(), 1);
-}
-
-#[tokio::test]
 async fn test_overflow() {
     let (tx, mut rx) = channel(4);
     let boundary = usize::MAX - 2;
-    tx.hack_set_tail(boundary);
-    rx.hack_set_head(boundary);
+
+    tx.shared.tail_cnt.store(boundary, Ordering::SeqCst);
+    rx.head = boundary;
+
     tx.send(1);
     assert_eq!(rx.recv().await, Ok(1));
     tx.send(2);

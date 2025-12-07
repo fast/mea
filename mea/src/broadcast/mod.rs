@@ -51,6 +51,9 @@ use crate::internal::Mutex;
 use crate::internal::RwLock;
 use crate::internal::WaitSet;
 
+#[cfg(test)]
+mod tests;
+
 /// Error returned by [`Receiver::recv`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecvError {
@@ -160,52 +163,6 @@ impl<T> Sender<T> {
             waker_key: None,
         }
     }
-
-    /// Returns the number of active senders.
-    pub fn sender_count(&self) -> usize {
-        self.shared.senders.load(Ordering::SeqCst)
-    }
-
-    /// Returns the number of messages in the channel.
-    ///
-    /// This is an estimate as the channel is concurrent.
-    pub fn len(&self) -> usize {
-        let tail = self.shared.tail_cnt.load(Ordering::Relaxed);
-        let cap = self.shared.capacity;
-        // In a wrapping scenario, we don't know "head" of oldest receiver easily.
-        // But the buffer always holds min(total_sent, capacity) valid messages.
-        // If tail < capacity, then we sent `tail` messages.
-        // If tail >= capacity, we have filled the buffer.
-        // Note: this logic assumes tail hasn't wrapped around 0 yet.
-        // If tail wrapped, it is technically < capacity again numerically,
-        // but physically the buffer is full.
-        // However, `usize` overflow takes a long time.
-        // If it wraps, `tail` becomes small. `tail < capacity` check returns true.
-        // Correctness issue: After wrap, `len()` returns small number, but buffer is full.
-        // To fix this perfectly requires a "wrapped" boolean or similar, but
-        // for `usize`, we generally ignore the heat death of universe scenario for `len`.
-        // Alternatively, we can check if `tail` ever exceeded capacity? No.
-        // Given this is a utility/debug method, `tail` based check is standard.
-        // Even tokio's len might behave similarly on wrap?
-        // Actually, if we use wrapping arithmetic, `len` is ambiguous without a "start" point.
-        // But here `len` implies "buffered count".
-        // Let's stick to simple logic: if we ever sent > cap, it's full.
-        // But we lost history on wrap.
-        // Let's assume non-wrapping for `len` logic or accept the quirk.
-        if tail < cap { tail } else { cap }
-    }
-
-    /// Returns `true` if the channel is empty.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Helper for testing overflow handling.
-    /// Sets the current tail to `val`.
-    #[cfg(test)]
-    pub fn hack_set_tail(&self, val: usize) {
-        self.shared.tail_cnt.store(val, Ordering::SeqCst);
-    }
 }
 
 /// A receiver handle to the broadcast channel.
@@ -280,13 +237,6 @@ impl<T> Receiver<T> {
             head: tail,
             waker_key: None,
         }
-    }
-
-    /// Helper for testing overflow handling.
-    /// Sets the current head to `val`.
-    #[cfg(test)]
-    pub fn hack_set_head(&mut self, val: usize) {
-        self.head = val;
     }
 }
 
@@ -370,12 +320,6 @@ impl<T: Clone> Future for RecvFuture<'_, T> {
     }
 }
 
-impl<T> Drop for Receiver<T> {
-    fn drop(&mut self) {
-        // WaitSet cleans up lazily.
-    }
-}
-
 /// Creates a new broadcast channel with the given capacity.
 ///
 /// The channel implements a "tail drop" policy: if the buffer is full, new messages
@@ -423,6 +367,3 @@ pub fn channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>) {
 
     (sender, receiver)
 }
-
-#[cfg(test)]
-mod tests;
