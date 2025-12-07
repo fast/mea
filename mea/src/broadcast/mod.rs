@@ -42,6 +42,7 @@ use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::task::Context;
@@ -58,7 +59,7 @@ pub enum RecvError {
     ///
     /// The count is the number of messages skipped. The receiver's internal cursor has been
     /// advanced to the oldest available message.
-    Lagged(usize),
+    Lagged(u64),
     /// The channel has been closed.
     Closed,
 }
@@ -79,7 +80,7 @@ struct Slot<T> {
     /// The message. None if the slot is empty (only initially).
     msg: Option<T>,
     /// The absolute version of the message in this slot.
-    version: usize,
+    version: u64,
 }
 
 struct Shared<T> {
@@ -87,7 +88,7 @@ struct Shared<T> {
     capacity: usize,
     /// The global tail cursor. Points to the next slot to write.
     /// Strictly monotonically increasing.
-    tail_cnt: AtomicUsize,
+    tail_cnt: AtomicU64,
     /// Number of active senders.
     senders: AtomicUsize,
     /// Waiters (receivers) waiting for new messages.
@@ -121,7 +122,7 @@ impl<T> Drop for Sender<T> {
     }
 }
 
-impl<T: Clone> Sender<T> {
+impl<T> Sender<T> {
     /// Broadcasts a value to all active receivers.
     ///
     /// This operation is non-blocking. If the channel buffer is full, the oldest message
@@ -139,7 +140,7 @@ impl<T: Clone> Sender<T> {
     pub fn send(&self, msg: T) {
         let tail = self.shared.tail_cnt.fetch_add(1, Ordering::SeqCst);
         let cap = self.shared.capacity;
-        let idx = (tail % cap);
+        let idx = (tail % cap as u64) as usize;
 
         {
             let mut slot = self.shared.buffer[idx].write();
@@ -150,6 +151,39 @@ impl<T: Clone> Sender<T> {
         // Notify all waiting receivers
         self.shared.waiters.lock().wake_all();
     }
+
+    /// Creates a new receiver that starts receiving messages from the current tail of the channel.
+    pub fn subscribe(&self) -> Receiver<T> {
+        let tail = self.shared.tail_cnt.load(Ordering::SeqCst);
+        Receiver {
+            shared: self.shared.clone(),
+            head: tail,
+            waker_key: None,
+        }
+    }
+
+    /// Returns the number of active senders.
+    pub fn sender_count(&self) -> usize {
+        self.shared.senders.load(Ordering::SeqCst)
+    }
+
+    /// Returns the number of messages in the channel.
+    ///
+    /// This is an estimate as the channel is concurrent.
+    pub fn len(&self) -> usize {
+        let tail = self.shared.tail_cnt.load(Ordering::Relaxed);
+        let cap = self.shared.capacity as u64;
+        if tail < cap {
+            tail as usize
+        } else {
+            self.shared.capacity
+        }
+    }
+
+    /// Returns `true` if the channel is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 /// A receiver handle to the broadcast channel.
@@ -159,7 +193,7 @@ impl<T: Clone> Sender<T> {
 pub struct Receiver<T> {
     shared: Arc<Shared<T>>,
     /// The next message to read.
-    head: usize,
+    head: u64,
     /// Key for the WaitSet to identify this receiver's waker.
     waker_key: Option<usize>,
 }
@@ -211,6 +245,22 @@ impl<T: Clone> Receiver<T> {
     }
 }
 
+impl<T> Receiver<T> {
+    /// Re-subscribes to the channel, returning a new receiver that starts receiving messages
+    /// from the *current* tail of the channel.
+    ///
+    /// This is useful if the receiver has lagged too far behind and wants to jump to the latest
+    /// message, skipping everything in between.
+    pub fn resubscribe(&self) -> Self {
+        let tail = self.shared.tail_cnt.load(Ordering::SeqCst);
+        Self {
+            shared: self.shared.clone(),
+            head: tail,
+            waker_key: None,
+        }
+    }
+}
+
 struct RecvFuture<'a, T> {
     receiver: &'a mut Receiver<T>,
 }
@@ -228,8 +278,8 @@ impl<T: Clone> Future for RecvFuture<'_, T> {
             let head = receiver.head;
 
             // 1. Check for Lag
-            if tail > head && (tail - head) > cap {
-                let oldest_valid = tail - cap;
+            if tail > head && (tail - head) > cap as u64 {
+                let oldest_valid = tail - cap as u64;
                 let missed = oldest_valid - head;
                 receiver.head = oldest_valid;
                 return Poll::Ready(Err(RecvError::Lagged(missed)));
@@ -237,7 +287,7 @@ impl<T: Clone> Future for RecvFuture<'_, T> {
 
             // 2. Check if we have a message
             if head < tail {
-                let idx = (head % cap);
+                let idx = (head % cap as u64) as usize;
 
                 // Read lock the slot
                 let slot = shared.buffer[idx].read();
@@ -318,7 +368,7 @@ pub fn channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>) {
     let shared = Arc::new(Shared {
         buffer: buffer.into_boxed_slice(),
         capacity,
-        tail_cnt: AtomicUsize::new(0),
+        tail_cnt: AtomicU64::new(0),
         senders: AtomicUsize::new(1),
         waiters: Mutex::new(WaitSet::new()),
     });

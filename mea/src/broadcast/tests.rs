@@ -54,22 +54,7 @@ async fn test_broadcast_lagged_multi() {
     tx.send(2);
     tx.send(3);
     tx.send(4);
-    // Overwrites 1 and 2.
-    // Buffer has [3, 4]. Tail is 4. Head is 0.
-    // Diff is 4. Cap is 2.
-    // Missed = (Tail - Cap) - Head = (4 - 2) - 0 = 2.
-    // Oldest valid is 2 (msg '3'). Wait...
-    // Tail=4.
-    // Slot indices: 0->1, 1->2, 0->3, 1->4.
-    // Buffer at 0 is 3 (ver 2). Buffer at 1 is 4 (ver 3).
-    // Spec says: "global_tail: Tracks the next write position".
-    // Send 1: buffer[0]=1, tail=1.
-    // Send 2: buffer[1]=2, tail=2.
-    // Send 3: buffer[0]=3, tail=3.
-    // Send 4: buffer[1]=4, tail=4.
-    // Oldest valid is at tail-cap = 4-2 = 2.
-    // Message at version 2 is '3'.
-    // So we missed version 0 ('1') and version 1 ('2'). Missed count = 2.
+    // Overwrites 1 and 2. Missed 2 messages.
 
     match rx.recv().await {
         Err(RecvError::Lagged(n)) => assert_eq!(n, 2),
@@ -90,11 +75,9 @@ async fn test_broadcast_closed() {
 #[tokio::test]
 async fn test_wrap_around() {
     let (tx, mut rx) = channel(2);
-    // Send enough to wrap u64? No, just buffer wrap.
     for i in 0..10 {
         tx.send(i);
         if i >= 2 {
-            // Consume to prevent lag, or just check lag handling repeatedly
             if let Ok(v) = rx.recv().await {
                 assert_eq!(v, i);
             }
@@ -112,4 +95,62 @@ async fn test_wait_mechanism() {
     tx.send(42);
 
     assert_eq!(handle.await.unwrap(), Ok(42));
+}
+
+#[tokio::test]
+async fn test_subscribe() {
+    let (tx, _rx) = channel::<i32>(10);
+    let mut rx = tx.subscribe();
+
+    tx.send(100);
+    assert_eq!(rx.recv().await, Ok(100));
+}
+
+#[tokio::test]
+async fn test_resubscribe() {
+    let (tx, mut rx) = channel(2);
+
+    tx.send(1);
+    tx.send(2);
+
+    let mut rx2 = rx.resubscribe();
+
+    // rx sees 1, 2
+    // rx2 sees nothing yet (starts at tail=2)
+
+    tx.send(3);
+
+    match rx.recv().await {
+        Err(RecvError::Lagged(n)) => assert_eq!(n, 1),
+        _ => panic!("Expected Lagged error"),
+    }
+    assert_eq!(rx.recv().await, Ok(2));
+    assert_eq!(rx2.recv().await, Ok(3));
+}
+
+#[tokio::test]
+async fn test_len_empty() {
+    let (tx, _rx) = channel::<i32>(10);
+    assert!(tx.is_empty());
+    assert_eq!(tx.len(), 0);
+
+    tx.send(1);
+    assert!(!tx.is_empty());
+    assert_eq!(tx.len(), 1);
+
+    for i in 0..15 {
+        tx.send(i);
+    }
+    // Cap is 10
+    assert_eq!(tx.len(), 10);
+}
+
+#[tokio::test]
+async fn test_sender_count() {
+    let (tx, _rx) = channel::<i32>(10);
+    assert_eq!(tx.sender_count(), 1);
+    let tx2 = tx.clone();
+    assert_eq!(tx.sender_count(), 2);
+    drop(tx2);
+    assert_eq!(tx.sender_count(), 1);
 }
