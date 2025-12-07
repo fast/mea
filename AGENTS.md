@@ -13,16 +13,13 @@ This file provides context and instructions for AI agents working on the `mea` (
 - **MSRV:** 1.85.0.
 - Ensure code is compatible with this version.
 
-### 2. Build & Test System (`xtask`)
+### 2. Build & Test System
 
 The project uses `xtask` to manage build, lint, and test commands. Do **not** run raw `cargo` commands for these tasks if an `xtask` equivalent exists, as `xtask` ensures all flags and environment variables are set correctly.
 
 - **Build:** `cargo x build`
 - **Test:** `cargo x test` (Runs tests for the workspace)
-- **Lint & Format:** `cargo x lint` (Runs clippy, rustfmt, taplo, typos, and hawkeye)
-
-**Note:** You may need to alias `cargo x` to `cargo run --package xtask --bin xtask --` if `cargo x` is not directly configured in your environment, but usually `cargo run -p xtask -- <command>` is the standard fallback. The project likely has a `.cargo/config.toml` that sets up the alias, but as an agent, you can just use `cargo run -p xtask -- <command>` to be safe, or check for the alias.
-*Self-Correction:* The `xtask` pattern usually implies you can run it via `cargo run --package xtask -- <args>`. The provided alias `cargo x` is a common convention but might not be pre-installed in the agent's shell.
+- **Lint & Format:** `cargo +nightly x lint` (Runs clippy, rustfmt, taplo, typos, and hawkeye)
 
 ### 3. Code Style & Quality
 
@@ -49,8 +46,8 @@ The project uses `xtask` to manage build, lint, and test commands. Do **not** ru
 1.  **Plan:** Understand the goal.
 2.  **Modify:** Edit code in `mea/src`.
 3.  **Verify:**
-    - Run `cargo run -p xtask -- test` to ensure correctness.
-    - Run `cargo run -p xtask -- lint` to ensure style/lint compliance. **Important:** `lint` can also fix some issues automatically if passed the `--fix` flag (e.g. `cargo run -p xtask -- lint --fix`), but be careful with automatic fixes.
+    - Run `cargo x test` to ensure correctness.
+    - Run `cargo +nightly x lint` to ensure style/lint compliance. **Important:** `lint` can also fix some issues automatically if passed the `--fix` flag (e.g. `cargo +nightly x lint --fix`), but be careful with automatic fixes.
 
 ## Common Issues
 

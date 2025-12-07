@@ -12,20 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod countdown;
-pub(crate) use countdown::*;
+use std::sync::PoisonError;
 
-mod mutex;
-pub(crate) use mutex::*;
+pub(crate) struct RwLock<T: ?Sized>(std::sync::RwLock<T>);
 
-mod rwlock;
-pub(crate) use rwlock::*;
+impl<T> RwLock<T> {
+    pub(crate) const fn new(t: T) -> Self {
+        Self(std::sync::RwLock::new(t))
+    }
+}
 
-mod semaphore;
-pub(crate) use semaphore::*;
+impl<T: ?Sized> RwLock<T> {
+    pub(crate) fn read(&self) -> std::sync::RwLockReadGuard<'_, T> {
+        self.0.read().unwrap_or_else(PoisonError::into_inner)
+    }
 
-mod waitlist;
-pub(crate) use waitlist::*;
-
-mod waitset;
-pub(crate) use waitset::*;
+    pub(crate) fn write(&self) -> std::sync::RwLockWriteGuard<'_, T> {
+        self.0.write().unwrap_or_else(PoisonError::into_inner)
+    }
+}
