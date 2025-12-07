@@ -27,16 +27,16 @@
 //!
 //! # #[tokio::main]
 //! # async fn main() {
-//!     let (tx, mut rx1) = broadcast::channel(16);
-//!     let mut rx2 = tx.subscribe();
+//! let (tx, mut rx1) = broadcast::channel(16);
+//! let mut rx2 = tx.subscribe();
 //!
-//!     tx.send(10);
-//!     tx.send(20);
+//! tx.send(10);
+//! tx.send(20);
 //!
-//!     assert_eq!(rx1.recv().await, Ok(10));
-//!     assert_eq!(rx1.recv().await, Ok(20));
-//!     assert_eq!(rx2.recv().await, Ok(10));
-//!     assert_eq!(rx2.recv().await, Ok(20));
+//! assert_eq!(rx1.recv().await, Ok(10));
+//! assert_eq!(rx1.recv().await, Ok(20));
+//! assert_eq!(rx2.recv().await, Ok(10));
+//! assert_eq!(rx2.recv().await, Ok(20));
 //! # }
 //! ```
 //!
@@ -48,15 +48,15 @@
 //!
 //! # #[tokio::main]
 //! # async fn main() {
-//!     let (tx, mut rx) = broadcast::channel(2);
+//! let (tx, mut rx) = broadcast::channel(2);
 //!
-//!     tx.send(1);
-//!     tx.send(2);
-//!     tx.send(3); // overwrites the oldest message (1)
+//! tx.send(1);
+//! tx.send(2);
+//! tx.send(3); // overwrites the oldest message (1)
 //!
-//!     assert_eq!(rx.recv().await, Err(RecvError::Lagged(1)));
-//!     assert_eq!(rx.recv().await, Ok(2));
-//!     assert_eq!(rx.recv().await, Ok(3));
+//! assert_eq!(rx.recv().await, Err(RecvError::Lagged(1)));
+//! assert_eq!(rx.recv().await, Ok(2));
+//! assert_eq!(rx.recv().await, Ok(3));
 //! # }
 //! ```
 
@@ -315,9 +315,9 @@ impl<T: Clone> Receiver<T> {
     ///
     /// # #[tokio::main]
     /// # async fn main() {
-    ///     let (tx, mut rx) = broadcast::channel(16);
-    ///     tx.send(10);
-    ///     assert_eq!(rx.recv().await, Ok(10));
+    /// let (tx, mut rx) = broadcast::channel(16);
+    /// tx.send(10);
+    /// assert_eq!(rx.recv().await, Ok(10));
     /// # }
     /// ```
     pub async fn recv(&mut self) -> Result<T, RecvError> {
@@ -432,6 +432,7 @@ struct Recv<'a, T> {
 impl<T: Clone> Future for Recv<'_, T> {
     type Output = Result<T, RecvError>;
 
+    // TODO: try to leverage try_recv so that we're sure the implement is the same
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let Self { receiver, idx } = self.get_mut();
         let shared = &receiver.shared;

@@ -131,19 +131,56 @@ async fn test_resubscribe() {
 #[tokio::test]
 async fn test_overflow() {
     let (tx, mut rx) = channel(4);
-    let boundary = usize::MAX - 2;
+    let mut rx2 = rx.clone();
 
+    let boundary = usize::MAX - 2;
     tx.shared.tail_cnt.store(boundary, Ordering::SeqCst);
     rx.head = boundary;
 
     tx.send(1);
     assert_eq!(rx.recv().await, Ok(1));
+
     tx.send(2);
-    assert_eq!(rx.recv().await, Ok(2));
     tx.send(3);
-    assert_eq!(rx.recv().await, Ok(3));
     tx.send(4);
-    assert_eq!(rx.recv().await, Ok(4));
+    tx.send(5);
+    tx.send(6);
+    tx.send(7);
+    tx.send(8);
+
+    assert_eq!(rx.recv().await, Err(RecvError::Lagged(3)));
+    assert_eq!(rx.recv().await, Ok(5));
+    assert_eq!(rx.recv().await, Ok(6));
+    assert_eq!(rx.recv().await, Ok(7));
+    assert_eq!(rx.recv().await, Ok(8));
+
+    assert_eq!(rx2.recv().await, Err(RecvError::Lagged(1)));
+    assert_eq!(rx2.recv().await, Ok(5));
+    assert_eq!(rx2.recv().await, Ok(6));
+    assert_eq!(rx2.recv().await, Ok(7));
+    assert_eq!(rx2.recv().await, Ok(8));
+}
+
+#[tokio::test]
+async fn test_overflow_wrapping() {
+    let (tx, mut rx) = channel(4);
+    let mut rx2 = rx.clone();
+
+    let boundary = usize::MAX - 2;
+    tx.shared.tail_cnt.store(boundary, Ordering::SeqCst);
+    rx.head = boundary;
+
+    tx.send(1);
+    assert_eq!(rx.recv().await, Ok(1));
+
+    tx.send(2);
+    tx.send(3);
+    tx.send(4);
+    tx.send(5);
+
+    assert_eq!(rx.recv().await, Ok(2));
+    // FIXME: wrapping just hit the head, but this should be lagged
+    assert_eq!(rx2.recv().await, Ok(4));
 }
 
 #[tokio::test]
