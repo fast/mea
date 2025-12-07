@@ -305,7 +305,7 @@ impl<T: Clone> Receiver<T> {
     /// * `Err(RecvError::Lagged(usize))`: The receiver lagged behind. The internal cursor is
     ///   advanced to the oldest available message. The count indicates how many messages were
     ///   skipped.
-    /// * `Err(RecvError::Closed)`: All senders have been dropped and no more messages are
+    /// * `Err(RecvError::Disconnected)`: All senders have been dropped and no more messages are
     ///   available.
     ///
     /// # Examples
@@ -323,7 +323,7 @@ impl<T: Clone> Receiver<T> {
     pub async fn recv(&mut self) -> Result<T, RecvError> {
         Recv {
             receiver: self,
-            idx: None,
+            index: None,
         }
         .await
     }
@@ -337,7 +337,7 @@ impl<T: Clone> Receiver<T> {
     /// * `Err(TryRecvError::Lagged(usize))`: The receiver lagged behind. The internal cursor is
     ///   advanced to the oldest available message. The count indicates how many messages were
     ///   skipped.
-    /// * `Err(TryRecvError::Closed)`: All senders have been dropped and no more messages are
+    /// * `Err(TryRecvError::Disconnected)`: All senders have been dropped and no more messages are
     ///   available.
     ///
     /// # Examples
@@ -426,7 +426,7 @@ impl<T> Receiver<T> {
 
 struct Recv<'a, T> {
     receiver: &'a mut Receiver<T>,
-    idx: Option<usize>,
+    index: Option<usize>,
 }
 
 impl<T: Clone> Future for Recv<'_, T> {
@@ -434,7 +434,7 @@ impl<T: Clone> Future for Recv<'_, T> {
 
     // TODO: try to leverage try_recv so that we're sure the implement is the same
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let Self { receiver, idx } = self.get_mut();
+        let Self { receiver, index } = self.get_mut();
         let shared = &receiver.shared;
         let cap = shared.capacity;
 
@@ -494,7 +494,7 @@ impl<T: Clone> Future for Recv<'_, T> {
             }
 
             // 5. Register Waker
-            waiters.register_waker(idx, cx);
+            waiters.register_waker(index, cx);
             return Poll::Pending;
         }
     }
