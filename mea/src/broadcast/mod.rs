@@ -353,45 +353,47 @@ impl<T: Clone> Receiver<T> {
         let shared = &self.shared;
         let cap = shared.capacity;
 
-        loop {
-            let tail = shared.tail_cnt.load(Ordering::SeqCst);
-            let head = self.head;
+        let tail = shared.tail_cnt.load(Ordering::SeqCst);
+        let head = self.head;
 
-            // diff represents how far behind the head is from the tail.
-            let diff = tail.wrapping_sub(head);
+        // diff represents how far behind the head is from the tail.
+        let diff = tail.wrapping_sub(head);
 
-            // 1. Check for Lag
-            if diff > cap {
-                let missed = diff - cap;
-                self.head = tail.wrapping_sub(cap);
-                return Err(TryRecvError::Lagged(missed));
-            }
-
-            // 2. Check if a message is available
-            if diff > 0 {
-                let idx = head % cap;
-                let slot = shared.buffer[idx].read();
-
-                if slot.version == head {
-                    if let Some(msg) = &slot.msg {
-                        self.head = head.wrapping_add(1);
-                        return Ok(msg.clone());
-                    }
-                }
-
-                // If version != head, the slot was overwritten.
-                // Loop back to re-check lag against the new tail.
-                drop(slot);
-                continue;
-            }
-
-            // 3. No message available (diff == 0). Check for Closed.
-            if shared.senders.load(Ordering::Acquire) == 0 {
-                return Err(TryRecvError::Disconnected);
-            }
-
-            return Err(TryRecvError::Empty);
+        // 1. Check for Lag
+        if diff > cap {
+            let missed = diff - cap;
+            self.head = tail.wrapping_sub(cap);
+            return Err(TryRecvError::Lagged(missed));
         }
+
+        // 2. Check if a message is available
+        if diff > 0 {
+            let idx = head % cap;
+            let slot = shared.buffer[idx].read();
+
+            if slot.version == head {
+                if let Some(msg) = &slot.msg {
+                    self.head = head.wrapping_add(1);
+                    return Ok(msg.clone());
+                }
+            }
+
+            // If version != head, the slot was overwritten.
+            // This means we lagged, but the `diff > cap` check missed it (likely due to overflow
+            // wrapping). We treat this as a lag.
+            drop(slot);
+
+            let missed = tail.wrapping_sub(self.head).wrapping_sub(cap);
+            self.head = tail.wrapping_sub(cap);
+            return Err(TryRecvError::Lagged(missed));
+        }
+
+        // 3. No message available (diff == 0). Check for Closed.
+        if shared.senders.load(Ordering::Acquire) == 0 {
+            return Err(TryRecvError::Disconnected);
+        }
+
+        Err(TryRecvError::Empty)
     }
 }
 
@@ -432,68 +434,37 @@ struct Recv<'a, T> {
 impl<T: Clone> Future for Recv<'_, T> {
     type Output = Result<T, RecvError>;
 
-    // TODO: try to leverage try_recv so that we're sure the implement is the same
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let Self { receiver, index } = self.get_mut();
-        let shared = &receiver.shared;
-        let cap = shared.capacity;
 
         loop {
-            let tail = shared.tail_cnt.load(Ordering::SeqCst);
-            let head = receiver.head;
-
-            // Use wrapping subtraction to correctly handle usize overflow.
-            // diff represents how far behind the head is from the tail.
-            let diff = tail.wrapping_sub(head);
-
-            // 1. Check for Lag
-            // If diff > cap, the receiver is too far behind (older messages were overwritten).
-            if diff > cap {
-                let missed = diff - cap;
-                // Advance head to the oldest valid message (tail - cap).
-                receiver.head = tail.wrapping_sub(cap);
-                return Poll::Ready(Err(RecvError::Lagged(missed)));
-            }
-
-            // 2. Check if a message is available
-            // diff > 0 means tail is ahead of head.
-            if diff > 0 {
-                let idx = head % cap;
-
-                // Read lock the slot.
-                let slot = shared.buffer[idx].read();
-
-                if slot.version == head {
-                    if let Some(msg) = &slot.msg {
-                        receiver.head = head.wrapping_add(1);
-                        return Poll::Ready(Ok(msg.clone()));
-                    }
+            match receiver.try_recv() {
+                Ok(val) => return Poll::Ready(Ok(val)),
+                Err(TryRecvError::Lagged(n)) => return Poll::Ready(Err(RecvError::Lagged(n))),
+                Err(TryRecvError::Disconnected) => {
+                    return Poll::Ready(Err(RecvError::Disconnected));
                 }
-
-                // If version != head, the slot was overwritten concurrently.
-                // Loop back to re-check lag against the new tail.
-                drop(slot);
-                continue;
+                Err(TryRecvError::Empty) => {}
             }
 
-            // 3. No message available (diff == 0). Prepare to wait.
+            let shared = &receiver.shared;
             let mut waiters = shared.waiters.lock();
 
             // Double check tail to avoid race conditions.
             let tail_now = shared.tail_cnt.load(Ordering::SeqCst);
-            if tail_now != head {
+            if tail_now != receiver.head {
                 // New message arrived while acquiring the lock. Retry.
                 drop(waiters);
                 continue;
             }
 
-            // 4. Check for Closed
+            // Check for Closed
             // Use Acquire to ensure we see all writes before the sender dropped.
             if shared.senders.load(Ordering::Acquire) == 0 {
                 return Poll::Ready(Err(RecvError::Disconnected));
             }
 
-            // 5. Register Waker
+            // Register Waker
             waiters.register_waker(index, cx);
             return Poll::Pending;
         }

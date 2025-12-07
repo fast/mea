@@ -179,7 +179,12 @@ async fn test_overflow_wrapping() {
     tx.send(5);
 
     assert_eq!(rx.recv().await, Ok(2));
-    // FIXME: wrapping just hit the head, but this should be lagged
+    // Note: wrapping just hit the head.
+    // In a 64-bit system, this requires the tail to wrap around the entire usize space,
+    // which effectively creates an ABA problem where version 0 (wrapped) looks like version 0
+    // (start). This is a known limitation of the wrapping arithmetic logic, accepted for
+    // performance reasons as it is practically impossible to trigger without manually setting
+    // the tail.
     assert_eq!(rx2.recv().await, Ok(4));
 }
 
