@@ -154,3 +154,19 @@ async fn test_sender_count() {
     drop(tx2);
     assert_eq!(tx.sender_count(), 1);
 }
+
+#[tokio::test]
+async fn test_overflow() {
+    let (tx, mut rx) = channel(4);
+    let boundary = usize::MAX - 2;
+    tx.hack_set_tail(boundary);
+    rx.hack_set_head(boundary);
+    tx.send(1);
+    assert_eq!(rx.recv().await, Ok(1));
+    tx.send(2);
+    assert_eq!(rx.recv().await, Ok(2));
+    tx.send(3);
+    assert_eq!(rx.recv().await, Ok(3));
+    tx.send(4);
+    assert_eq!(rx.recv().await, Ok(4));
+}
