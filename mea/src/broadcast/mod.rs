@@ -42,7 +42,6 @@ use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::task::Context;
@@ -59,7 +58,7 @@ pub enum RecvError {
     ///
     /// The count is the number of messages skipped. The receiver's internal cursor has been
     /// advanced to the oldest available message.
-    Lagged(u64),
+    Lagged(usize),
     /// The channel has been closed.
     Closed,
 }
@@ -75,24 +74,12 @@ impl fmt::Display for RecvError {
 
 impl std::error::Error for RecvError {}
 
-/// Error returned by [`Sender::send`].
-#[derive(Debug, PartialEq, Eq)]
-pub struct SendError<T>(pub T);
-
-impl<T> fmt::Display for SendError<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "channel closed")
-    }
-}
-
-impl<T: fmt::Debug> std::error::Error for SendError<T> {}
-
 #[derive(Debug)]
 struct Slot<T> {
     /// The message. None if the slot is empty (only initially).
     msg: Option<T>,
     /// The absolute version of the message in this slot.
-    version: u64,
+    version: usize,
 }
 
 struct Shared<T> {
@@ -100,9 +87,9 @@ struct Shared<T> {
     capacity: usize,
     /// The global tail cursor. Points to the next slot to write.
     /// Strictly monotonically increasing.
-    global_tail: AtomicU64,
+    tail_cnt: AtomicUsize,
     /// Number of active senders.
-    sender_count: AtomicUsize,
+    senders: AtomicUsize,
     /// Waiters (receivers) waiting for new messages.
     waiters: Mutex<WaitSet>,
 }
@@ -117,7 +104,7 @@ pub struct Sender<T> {
 
 impl<T> Clone for Sender<T> {
     fn clone(&self) -> Self {
-        self.shared.sender_count.fetch_add(1, Ordering::Relaxed);
+        self.shared.senders.fetch_add(1, Ordering::Relaxed);
         Self {
             shared: self.shared.clone(),
         }
@@ -126,7 +113,7 @@ impl<T> Clone for Sender<T> {
 
 impl<T> Drop for Sender<T> {
     fn drop(&mut self) {
-        if self.shared.sender_count.fetch_sub(1, Ordering::Relaxed) == 1 {
+        if self.shared.senders.fetch_sub(1, Ordering::Relaxed) == 1 {
             // Wake all receivers so they can see the Closed state.
             // We use the waiters lock.
             self.shared.waiters.lock().wake_all();
@@ -150,9 +137,9 @@ impl<T: Clone> Sender<T> {
     /// tx.send(42);
     /// ```
     pub fn send(&self, msg: T) {
-        let tail = self.shared.global_tail.fetch_add(1, Ordering::SeqCst);
+        let tail = self.shared.tail_cnt.fetch_add(1, Ordering::SeqCst);
         let cap = self.shared.capacity;
-        let idx = (tail % cap as u64) as usize;
+        let idx = (tail % cap);
 
         {
             let mut slot = self.shared.buffer[idx].write();
@@ -172,7 +159,7 @@ impl<T: Clone> Sender<T> {
 pub struct Receiver<T> {
     shared: Arc<Shared<T>>,
     /// The next message to read.
-    head: u64,
+    head: usize,
     /// Key for the WaitSet to identify this receiver's waker.
     waker_key: Option<usize>,
 }
@@ -237,12 +224,12 @@ impl<T: Clone> Future for RecvFuture<'_, T> {
         let cap = shared.capacity;
 
         loop {
-            let tail = shared.global_tail.load(Ordering::SeqCst);
+            let tail = shared.tail_cnt.load(Ordering::SeqCst);
             let head = receiver.head;
 
             // 1. Check for Lag
-            if tail > head && (tail - head) > cap as u64 {
-                let oldest_valid = tail - cap as u64;
+            if tail > head && (tail - head) > cap {
+                let oldest_valid = tail - cap;
                 let missed = oldest_valid - head;
                 receiver.head = oldest_valid;
                 return Poll::Ready(Err(RecvError::Lagged(missed)));
@@ -250,7 +237,7 @@ impl<T: Clone> Future for RecvFuture<'_, T> {
 
             // 2. Check if we have a message
             if head < tail {
-                let idx = (head % cap as u64) as usize;
+                let idx = (head % cap);
 
                 // Read lock the slot
                 let slot = shared.buffer[idx].read();
@@ -276,7 +263,7 @@ impl<T: Clone> Future for RecvFuture<'_, T> {
 
             // Double check tail to avoid race condition where message is sent
             // after we checked tail but before we locked waiters.
-            let tail_now = shared.global_tail.load(Ordering::SeqCst);
+            let tail_now = shared.tail_cnt.load(Ordering::SeqCst);
             if tail_now > head {
                 // New message arrived!
                 drop(waiters);
@@ -284,7 +271,7 @@ impl<T: Clone> Future for RecvFuture<'_, T> {
             }
 
             // 4. Check for Closed
-            if shared.sender_count.load(Ordering::SeqCst) == 0 {
+            if shared.senders.load(Ordering::SeqCst) == 0 {
                 return Poll::Ready(Err(RecvError::Closed));
             }
 
@@ -331,8 +318,8 @@ pub fn channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>) {
     let shared = Arc::new(Shared {
         buffer: buffer.into_boxed_slice(),
         capacity,
-        global_tail: AtomicU64::new(0),
-        sender_count: AtomicUsize::new(1),
+        tail_cnt: AtomicUsize::new(0),
+        senders: AtomicUsize::new(1),
         waiters: Mutex::new(WaitSet::new()),
     });
 
