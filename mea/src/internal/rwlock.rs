@@ -31,3 +31,23 @@ impl<T: ?Sized> RwLock<T> {
         self.0.write().unwrap_or_else(PoisonError::into_inner)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use crate::internal::RwLock;
+
+    #[test]
+    fn test_poison_rwlock() {
+        let rwlock = Arc::new(RwLock::new(42));
+        let r = rwlock.clone();
+        let handle = std::thread::spawn(move || {
+            let _guard = r.write();
+            panic!("poison");
+        });
+        let _ = handle.join();
+        assert_eq!(*rwlock.read(), 42);
+        assert_eq!(*rwlock.write(), 42);
+    }
+}
