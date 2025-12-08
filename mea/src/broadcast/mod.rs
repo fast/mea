@@ -64,6 +64,7 @@ use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::task::Context;
@@ -76,10 +77,10 @@ use crate::internal::WaitSet;
 #[cfg(test)]
 mod tests;
 
-/// Creates a new broadcast channel with the given capacity.
+/// Creates a new broadcast channel with the given hint `capacity`. The actual capacity may be
+/// greater than the provided `capacity`.
 ///
-/// The channel implements a "tail drop" policy: if the buffer is full, new messages
-/// overwrite the oldest ones.
+/// See [module-level documentation](self) for broadcast channel semantics.
 ///
 /// # Panics
 ///
@@ -97,6 +98,9 @@ mod tests;
 pub fn channel<T: Clone>(capacity: usize) -> (Sender<T>, Receiver<T>) {
     assert!(capacity > 0, "capacity must be greater than 0");
 
+    let capacity = capacity.next_power_of_two();
+    let mask = capacity - 1;
+
     let mut buffer = Vec::with_capacity(capacity);
     for _ in 0..capacity {
         buffer.push(RwLock::new(Slot {
@@ -108,7 +112,8 @@ pub fn channel<T: Clone>(capacity: usize) -> (Sender<T>, Receiver<T>) {
     let shared = Arc::new(Shared {
         buffer: buffer.into_boxed_slice(),
         capacity,
-        tail_cnt: AtomicUsize::new(0),
+        mask,
+        tail_cnt: AtomicU64::new(0),
         senders: AtomicUsize::new(1),
         waiters: Mutex::new(WaitSet::new()),
     });
@@ -126,7 +131,7 @@ pub enum RecvError {
     ///
     /// The count is the number of messages skipped. The receiver's internal cursor has been
     /// advanced to the oldest available message.
-    Lagged(usize),
+    Lagged(u64),
     /// The sender has become disconnected, and there will never be any more data received on it.
     Disconnected,
 }
@@ -152,7 +157,7 @@ pub enum TryRecvError {
     ///
     /// The count is the number of messages skipped. The receiver's internal cursor has been
     /// advanced to the oldest available message.
-    Lagged(usize),
+    Lagged(u64),
     /// The sender has become disconnected, and there will never be any more data received on it.
     Disconnected,
 }
@@ -174,15 +179,16 @@ struct Slot<T> {
     /// The message. `None` if the slot is empty (initial state only).
     msg: Option<T>,
     /// The absolute version of the message in this slot.
-    version: usize,
+    version: u64,
 }
 
 struct Shared<T> {
     buffer: Box<[RwLock<Slot<T>>]>,
     capacity: usize,
+    mask: usize,
     /// The global tail cursor. Points to the next slot to write.
-    /// Strictly monotonically increasing (wrapping on overflow).
-    tail_cnt: AtomicUsize,
+    /// Strictly monotonically increasing.
+    tail_cnt: AtomicU64,
     /// Number of active senders.
     senders: AtomicUsize,
     /// Waiters (receivers) waiting for new messages.
@@ -239,7 +245,7 @@ impl<T> Sender<T> {
     /// ```
     pub fn send(&self, msg: T) {
         let tail = self.shared.tail_cnt.fetch_add(1, Ordering::SeqCst);
-        let idx = tail % self.shared.capacity;
+        let idx = (tail as usize) & self.shared.mask;
 
         {
             let mut slot = self.shared.buffer[idx].write();
@@ -284,7 +290,7 @@ impl<T> Sender<T> {
 /// message sent to the channel (unless it lags behind).
 pub struct Receiver<T> {
     shared: Arc<Shared<T>>,
-    head: usize,
+    head: u64,
 }
 
 impl<T> Clone for Receiver<T> {
@@ -351,7 +357,7 @@ impl<T: Clone> Receiver<T> {
     /// ```
     pub fn try_recv(&mut self) -> Result<T, TryRecvError> {
         let shared = &self.shared;
-        let cap = shared.capacity;
+        let cap = shared.capacity as u64;
 
         let tail = shared.tail_cnt.load(Ordering::SeqCst);
         let head = self.head;
@@ -368,7 +374,7 @@ impl<T: Clone> Receiver<T> {
 
         // 2. Check if a message is available
         if diff > 0 {
-            let idx = head % cap;
+            let idx = (head as usize) & shared.mask;
             let slot = shared.buffer[idx].read();
 
             if slot.version == head {
