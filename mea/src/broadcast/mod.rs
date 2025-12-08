@@ -308,9 +308,8 @@ impl<T: Clone> Receiver<T> {
     /// # Returns
     ///
     /// * `Ok(T)`: The next message.
-    /// * `Err(RecvError::Lagged(usize))`: The receiver lagged behind. The internal cursor is
-    ///   advanced to the oldest available message. The count indicates how many messages were
-    ///   skipped.
+    /// * `Err(RecvError::Lagged(u64))`: The receiver lagged behind. The internal cursor is advanced
+    ///   to the oldest available message. The count indicates how many messages were skipped.
     /// * `Err(RecvError::Disconnected)`: All senders have been dropped and no more messages are
     ///   available.
     ///
@@ -340,7 +339,7 @@ impl<T: Clone> Receiver<T> {
     ///
     /// * `Ok(T)`: The next message.
     /// * `Err(TryRecvError::Empty)`: No message is currently available.
-    /// * `Err(TryRecvError::Lagged(usize))`: The receiver lagged behind. The internal cursor is
+    /// * `Err(TryRecvError::Lagged(u64))`: The receiver lagged behind. The internal cursor is
     ///   advanced to the oldest available message. The count indicates how many messages were
     ///   skipped.
     /// * `Err(TryRecvError::Disconnected)`: All senders have been dropped and no more messages are

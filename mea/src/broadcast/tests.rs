@@ -209,3 +209,37 @@ async fn test_try_recv_lagged() {
     assert_eq!(rx.try_recv(), Ok(3));
     assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
 }
+
+#[tokio::test]
+async fn test_multi_senders_concurrent() {
+    let (tx, mut rx) = channel(100);
+    let tx1 = tx.clone();
+    let tx2 = tx.clone();
+
+    tokio::spawn(async move {
+        for i in 0..10 {
+            tx1.send(i);
+        }
+    });
+
+    tokio::spawn(async move {
+        for i in 10..20 {
+            tx2.send(i);
+        }
+    });
+
+    // Main tx can also send
+    for i in 20..30 {
+        tx.send(i);
+    }
+    drop(tx);
+
+    let mut received = Vec::new();
+    while let Ok(n) = rx.recv().await {
+        received.push(n);
+    }
+    received.sort();
+
+    let expected = (0..30).collect::<Vec<_>>();
+    assert_eq!(received, expected);
+}
