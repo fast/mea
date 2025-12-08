@@ -18,6 +18,9 @@ pub(crate) use countdown::*;
 mod mutex;
 pub(crate) use mutex::*;
 
+mod rwlock;
+pub(crate) use rwlock::*;
+
 mod semaphore;
 pub(crate) use semaphore::*;
 

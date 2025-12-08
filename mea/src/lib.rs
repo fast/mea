@@ -37,6 +37,7 @@
 //!   shutdown signals
 //! * [`WaitGroup`]: A synchronization primitive that allows waiting for multiple tasks to complete
 //! * [`atomicbox`]: A safe, owning version of `AtomicPtr` for heap-allocated data.
+//! * [`broadcast::channel`]: A multi-producer, multi-consumer broadcast channel.
 //! * [`mpsc::bounded`]: A multi-producer, single-consumer bounded queue for sending values between
 //!   asynchronous tasks.
 //! * [`mpsc::unbounded`]: A multi-producer, single-consumer unbounded queue for sending values
@@ -71,6 +72,7 @@ mod internal;
 
 pub mod atomicbox;
 pub mod barrier;
+pub mod broadcast;
 pub mod condvar;
 pub mod latch;
 pub mod mpsc;
@@ -94,6 +96,7 @@ fn test_runtime() -> &'static tokio::runtime::Runtime {
 #[cfg(test)]
 mod tests {
     use crate::barrier::Barrier;
+    use crate::broadcast;
     use crate::condvar::Condvar;
     use crate::latch::Latch;
     use crate::mpsc;
@@ -128,6 +131,10 @@ mod tests {
         do_assert_send_and_sync::<RwLock<i64>>();
         do_assert_send_and_sync::<RwLockReadGuard<'_, i64>>();
         do_assert_send_and_sync::<RwLockWriteGuard<'_, i64>>();
+        do_assert_send_and_sync::<broadcast::Sender<i64>>();
+        do_assert_send_and_sync::<broadcast::Receiver<i64>>();
+        do_assert_send_and_sync::<broadcast::RecvError>();
+        do_assert_send_and_sync::<broadcast::TryRecvError>();
         do_assert_send_and_sync::<oneshot::SendError<i64>>();
         do_assert_send_and_sync::<oneshot::Sender<i64>>();
         do_assert_send_and_sync::<mpsc::SendError<i64>>();
@@ -162,6 +169,10 @@ mod tests {
         do_assert_unpin::<RwLock<i64>>();
         do_assert_unpin::<RwLockReadGuard<'_, i64>>();
         do_assert_unpin::<RwLockWriteGuard<'_, i64>>();
+        do_assert_unpin::<broadcast::Sender<i64>>();
+        do_assert_unpin::<broadcast::Receiver<i64>>();
+        do_assert_unpin::<broadcast::RecvError>();
+        do_assert_unpin::<broadcast::TryRecvError>();
         do_assert_unpin::<oneshot::Sender<i64>>();
         do_assert_unpin::<oneshot::SendError<i64>>();
         do_assert_unpin::<oneshot::Receiver<i64>>();
