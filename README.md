@@ -75,7 +75,7 @@ This crate collects runtime-agnostic synchronization primitives from spare parts
 * **OnceCell** is derived from `tokio::sync::OnceCell`, but using our own semaphore implementation.
 * **RwLock** is derived from `tokio::sync::RwLock`, but the `max_readers` can be any `NonZeroUsize` (effectively any positive `usize`) instead of `[0, u32::MAX >> 3]`. No blocking method is provided, since it can be easily implemented with block_on of any runtime.
 * **Semaphore** is derived from `tokio::sync::Semaphore`, without `close` method since it is quite tricky to use. And thus, this semaphore doesn't have the limitation of max permits. Besides, new methods like `forget_exact` are added to fit the specific use case.
-* **WaitGroup** is inspired by [`waitgroup-rs`](https://github.com/laizy/waitgroup-rs), with a different implementation based on the internal `CountdownState` primitive. It fixes the unsound issue as described [here](https://github.com/rust-lang/futures-rs/issues/2880#issuecomment-2333842804).
+* **WaitGroup** is inspired by [`waitgroup-rs`](https://github.com/laizy/waitgroup-rs), providing different API flavor with a different implementation based on the internal `CountdownState` primitive.
 * **atomicbox** is forked from [`atomicbox`](https://github.com/jorendorff/atomicbox/) at commit 07756444.
 * **broadcast::channel** is derived from `tokio::sync::broadcast::channel`, with a different implementation based on the internal `WaitSet` primitive.
 * **oneshot::channel** is derived from [`oneshot`](https://github.com/faern/oneshot), with significant simplifications since we need not support synchronized receiving functions.
