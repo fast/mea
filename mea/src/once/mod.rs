@@ -21,10 +21,12 @@
 //! * [`OnceCell`]: A cell that can be written to at most once, storing a value produced
 //!   asynchronously.
 
+mod lazy_cell;
 #[allow(clippy::module_inception)]
 mod once;
 mod once_cell;
 
+pub use self::lazy_cell::LazyCell;
 pub use self::once::Once;
 pub use self::once_cell::OnceCell;
 
