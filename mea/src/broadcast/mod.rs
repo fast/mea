@@ -377,17 +377,19 @@ impl<T: Clone> Receiver<T> {
             let slot = shared.buffer[idx].read();
 
             if slot.version == head {
-                if let Some(msg) = &slot.msg {
+                return if let Some(msg) = &slot.msg {
                     self.head = head.wrapping_add(1);
-                    return Ok(msg.clone());
-                }
+                    Ok(msg.clone())
+                } else {
+                    Err(TryRecvError::Empty)
+                };
             }
+
+            drop(slot);
 
             // If version != head, the slot was overwritten.
             // This means we lagged, but the `diff > cap` check missed it (likely due to overflow
             // wrapping). We treat this as a lag.
-            drop(slot);
-
             let missed = tail.wrapping_sub(self.head).wrapping_sub(cap);
             self.head = tail.wrapping_sub(cap);
             return Err(TryRecvError::Lagged(missed));

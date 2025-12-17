@@ -211,6 +211,18 @@ async fn test_try_recv_lagged() {
 }
 
 #[tokio::test]
+async fn test_try_recv_unwritten_slot_is_empty() {
+    let (tx, mut rx) = channel::<u64>(2);
+    drop(tx);
+
+    // Simulate tail advanced but slot not written yet
+    rx.shared.tail_cnt.store(1, Ordering::SeqCst);
+
+    assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
+    assert_eq!(rx.head, 0);
+}
+
+#[tokio::test]
 async fn test_multi_senders_concurrent() {
     let (tx, mut rx) = channel(100);
     let tx1 = tx.clone();
