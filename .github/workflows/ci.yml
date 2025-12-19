@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
@@ -59,7 +59,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: Swatinem/rust-cache@v2
       - name: Delete rust-toolchain.toml
         run: rm rust-toolchain.toml
@@ -70,6 +70,22 @@ jobs:
       - name: Run unit tests
         run: cargo x test --no-capture
         shell: bash
+
+  miri:
+    name: Run Miri tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: Swatinem/rust-cache@v2
+      - name: Delete rust-toolchain.toml
+        run: rm rust-toolchain.toml
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - name: Run unit tests
+        run: cargo miri test
 
   required:
     name: Required
