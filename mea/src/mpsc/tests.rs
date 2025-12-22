@@ -17,6 +17,7 @@ use std::time::Instant;
 use tokio_test::assert_ok;
 
 use crate::mpsc;
+use crate::mpsc::RecvError;
 use crate::mpsc::TryRecvError;
 use crate::mpsc::TrySendError;
 use crate::test_runtime;
@@ -35,7 +36,7 @@ fn test_unbounded_pressure() {
         });
 
         for i in 0..n {
-            assert_eq!(rx.recv().await, Some(i));
+            assert_eq!(rx.recv().await, Ok(i));
         }
         println!("Elapsed: {:?}", start.elapsed());
     });
@@ -55,7 +56,7 @@ fn test_unbounded_sum() {
         drop(tx);
 
         let mut sum = 0;
-        while let Some(i) = rx.recv().await {
+        while let Ok(i) = rx.recv().await {
             sum += i;
         }
         assert_eq!(sum, 4950);
@@ -93,23 +94,44 @@ async fn select_streams() {
 
     let mut rem = true;
     let mut msgs = vec![];
+    let mut rx1_closed = false;
+    let mut rx2_closed = false;
+    let mut rx3_closed = false;
+    let mut rx4_closed = false;
 
     while rem {
+        rem = !(rx1_closed && rx2_closed && rx3_closed && rx4_closed);
+
         tokio::select! {
-            Some(x) = rx1.recv() => {
-                msgs.push(x);
+            result = rx1.recv(), if !rx1_closed => {
+                match result {
+                    Ok(x) => msgs.push(x),
+                    Err(RecvError::Disconnected) => rx1_closed = true,
+                }
             }
-            Some(y) = rx2.recv() => {
-                msgs.push(y);
+            result = rx2.recv(), if !rx2_closed => {
+                match result {
+                    Ok(y) => msgs.push(y),
+                    Err(RecvError::Disconnected) => rx2_closed = true,
+                }
             }
-            Some(z) = rx3.recv() => {
-                msgs.push(z);
+            result = rx3.recv(), if !rx3_closed => {
+                match result {
+                    Ok(z) => msgs.push(z),
+                    Err(RecvError::Disconnected) => rx3_closed = true,
+                }
             }
-            Some(w) = rx4.recv() => {
-                msgs.push(w);
+            result = rx4.recv(), if !rx4_closed => {
+                match result {
+                    Ok(w) => msgs.push(w),
+                    Err(RecvError::Disconnected) => rx4_closed = true,
+                }
             }
             else => {
-                rem = false;
+                rx1_closed = true;
+                rx2_closed = true;
+                rx3_closed = true;
+                rx4_closed = true;
             }
         }
     }
@@ -126,12 +148,12 @@ async fn send_recv_unbounded() {
     assert_ok!(tx.send(1));
     assert_ok!(tx.send(2));
 
-    assert_eq!(rx.recv().await, Some(1));
-    assert_eq!(rx.recv().await, Some(2));
+    assert_eq!(rx.recv().await, Ok(1));
+    assert_eq!(rx.recv().await, Ok(2));
 
     drop(tx);
 
-    assert!(rx.recv().await.is_none());
+    assert_eq!(rx.recv().await, Err(RecvError::Disconnected));
 }
 
 #[tokio::test]
@@ -143,9 +165,9 @@ async fn async_send_recv_unbounded() {
         assert_ok!(tx.send(2));
     });
 
-    assert_eq!(Some(1), rx.recv().await);
-    assert_eq!(Some(2), rx.recv().await);
-    assert_eq!(None, rx.recv().await);
+    assert_eq!(Ok(1), rx.recv().await);
+    assert_eq!(Ok(2), rx.recv().await);
+    assert_eq!(Err(RecvError::Disconnected), rx.recv().await);
 }
 
 #[test]
@@ -181,10 +203,10 @@ async fn send_recv_bounded() {
     let (tx, mut rx) = mpsc::bounded(1);
 
     tx.send(1).await.unwrap();
-    assert_eq!(rx.recv().await, Some(1));
+    assert_eq!(rx.recv().await, Ok(1));
 
     drop(tx);
-    assert_eq!(rx.recv().await, None);
+    assert_eq!(rx.recv().await, Err(RecvError::Disconnected));
 }
 
 #[tokio::test]
@@ -197,9 +219,9 @@ async fn async_send_recv_bounded() {
         tx.send(2).await.unwrap();
     });
 
-    assert_eq!(Some(1), rx.recv().await);
-    assert_eq!(Some(2), rx.recv().await);
-    assert_eq!(None, rx.recv().await);
+    assert_eq!(Ok(1), rx.recv().await);
+    assert_eq!(Ok(2), rx.recv().await);
+    assert_eq!(Err(RecvError::Disconnected), rx.recv().await);
 }
 
 #[test]
@@ -238,7 +260,7 @@ async fn send_after_close_bounded() {
     let (tx, mut rx) = mpsc::bounded(1);
 
     tx.send(1).await.unwrap();
-    assert_eq!(rx.recv().await, Some(1));
+    assert_eq!(rx.recv().await, Ok(1));
 
     drop(rx);
     assert_eq!(tx.send(2).await, Err(mpsc::SendError::new(2)));
@@ -258,7 +280,7 @@ fn test_bounded_pressure() {
         });
 
         for i in 0..n {
-            assert_eq!(rx.recv().await, Some(i));
+            assert_eq!(rx.recv().await, Ok(i));
         }
         println!("Elapsed: {:?}", start.elapsed());
     });

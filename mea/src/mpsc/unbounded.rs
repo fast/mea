@@ -25,6 +25,7 @@ use std::task::Poll;
 use std::task::Waker;
 
 use crate::atomicbox::AtomicOptionBox;
+use crate::mpsc::RecvError;
 use crate::mpsc::SendError;
 use crate::mpsc::TryRecvError;
 
@@ -188,14 +189,13 @@ impl<T> UnboundedReceiver<T> {
 
     /// Receives the next value for this receiver.
     ///
-    /// This method returns `None` if the channel has been closed and there are
-    /// no remaining messages in the channel's buffer. This indicates that no
-    /// further values can ever be received from this `Receiver`. The channel is
-    /// closed when all senders have been dropped.
+    /// This method returns `Err(RecvError::Disconnected)` if the channel has been closed and there
+    /// are no remaining messages in the channel's buffer. This indicates that no further values
+    /// can ever be received from this `Receiver`. The channel is closed when all senders have been
+    /// dropped.
     ///
-    /// If there are no messages in the channel's buffer, but the channel has
-    /// not yet been closed, this method will sleep until a message is sent or
-    /// the channel is closed.
+    /// If there are no messages in the channel's buffer, but the channel has not yet been closed,
+    /// this method will sleep until a message is sent or the channel is closed.
     ///
     /// # Cancel safety
     ///
@@ -215,8 +215,8 @@ impl<T> UnboundedReceiver<T> {
     ///     tx.send("hello").unwrap();
     /// });
     ///
-    /// assert_eq!(Some("hello"), rx.recv().await);
-    /// assert_eq!(None, rx.recv().await);
+    /// assert_eq!(Ok("hello"), rx.recv().await);
+    /// assert_eq!(Err(mpsc::RecvError::Disconnected), rx.recv().await);
     /// # }
     /// ```
     ///
@@ -231,25 +231,25 @@ impl<T> UnboundedReceiver<T> {
     /// tx.send("hello").unwrap();
     /// tx.send("world").unwrap();
     ///
-    /// assert_eq!(Some("hello"), rx.recv().await);
-    /// assert_eq!(Some("world"), rx.recv().await);
+    /// assert_eq!(Ok("hello"), rx.recv().await);
+    /// assert_eq!(Ok("world"), rx.recv().await);
     /// # }
     /// ```
-    pub async fn recv(&mut self) -> Option<T> {
+    pub async fn recv(&mut self) -> Result<T, RecvError> {
         poll_fn(|cx| self.poll_recv(cx)).await
     }
 
-    fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Option<T>> {
+    fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<T, RecvError>> {
         match self.try_recv() {
-            Ok(v) => Poll::Ready(Some(v)),
-            Err(TryRecvError::Disconnected) => Poll::Ready(None),
+            Ok(v) => Poll::Ready(Ok(v)),
+            Err(TryRecvError::Disconnected) => Poll::Ready(Err(RecvError::Disconnected)),
             Err(TryRecvError::Empty) => {
                 let waker = Some(Box::new(cx.waker().clone()));
                 self.state.rx_task.store(waker);
 
                 match self.try_recv() {
-                    Ok(v) => Poll::Ready(Some(v)),
-                    Err(TryRecvError::Disconnected) => Poll::Ready(None),
+                    Ok(v) => Poll::Ready(Ok(v)),
+                    Err(TryRecvError::Disconnected) => Poll::Ready(Err(RecvError::Disconnected)),
                     Err(TryRecvError::Empty) => Poll::Pending,
                 }
             }

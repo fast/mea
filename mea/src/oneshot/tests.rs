@@ -28,6 +28,7 @@ use std::task::Waker;
 use std::time::Duration;
 
 use crate::oneshot;
+use crate::oneshot::TryRecvError;
 
 struct DropCounterHandle(Arc<AtomicUsize>);
 
@@ -139,6 +140,28 @@ async fn recv_within_select() {
     }
 
     handle.await.unwrap();
+}
+
+#[test]
+fn try_recv_success_then_disconnected() {
+    let (tx, rx) = oneshot::channel::<i32>();
+    tx.send(10).unwrap();
+
+    assert_eq!(rx.try_recv(), Ok(10));
+    assert_eq!(rx.try_recv(), Err(TryRecvError::Disconnected));
+}
+
+#[test]
+fn try_recv_empty_with_live_sender() {
+    let (_tx, rx) = oneshot::channel::<()>();
+    assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
+}
+
+#[test]
+fn try_recv_disconnected_after_drop() {
+    let (tx, rx) = oneshot::channel::<()>();
+    drop(tx);
+    assert_eq!(rx.try_recv(), Err(TryRecvError::Disconnected));
 }
 
 #[derive(Default)]

@@ -308,21 +308,22 @@ impl<T> Receiver<T> {
 
     /// Checks if there is a message in the channel without blocking. Returns:
     ///
-    /// * `Ok(Some(message))` if there was a message in the channel.
-    /// * `Ok(None)` if the [`Sender`] is alive, but has not yet sent a message.
-    /// * `Err(RecvError)` if the [`Sender`] was dropped before sending anything or if the message
-    ///   has already been extracted by a previous `try_recv` call.
+    /// * `Ok(message)` if there was a message in the channel.
+    /// * `Err(TryRecvError::Empty)` if the [`Sender`] is alive, but has not yet sent a message.
+    /// * `Err(TryRecvError::Disconnected)` if the [`Sender`] was dropped before sending anything or
+    ///   if the message has already been extracted by a previous `try_recv` call.
     ///
     /// If a message is returned, the channel is disconnected and any subsequent receive operation
-    /// using this receiver will return an [`RecvError`].
-    pub fn try_recv(&self) -> Result<Option<T>, RecvError> {
+    /// using this receiver will return an error: [`TryRecvError::Disconnected`] for `try_recv`,
+    /// or [`RecvError::Disconnected`] for [`recv`](Receiver::into_future).
+    pub fn try_recv(&self) -> Result<T, TryRecvError> {
         // SAFETY: The channel will not be freed while this method is still running.
         let channel = unsafe { self.channel_ptr.as_ref() };
 
         // ORDERING: we use acquire ordering to synchronize with the store of the message.
         match channel.state.load(Ordering::Acquire) {
-            EMPTY => Ok(None),
-            DISCONNECTED => Err(RecvError(())),
+            EMPTY => Err(TryRecvError::Empty),
+            DISCONNECTED => Err(TryRecvError::Disconnected),
             MESSAGE => {
                 // It is okay to break up the load and store since once we are in the MESSAGE state,
                 // the sender no longer modifies the state
@@ -332,7 +333,7 @@ impl<T> Receiver<T> {
                 channel.state.store(DISCONNECTED, Ordering::Relaxed);
 
                 // SAFETY: we are in the MESSAGE state so the message is present
-                Ok(Some(unsafe { channel.take_message() }))
+                Ok(unsafe { channel.take_message() })
             }
             state => unreachable!("unexpected channel state: {}", state),
         }
@@ -381,7 +382,7 @@ fn recv_awaken<T>(channel: &Channel<T>) -> Poll<Result<T, RecvError>> {
         // ORDERING: The load above has already synchronized with writing message.
         match channel.state.load(Ordering::Relaxed) {
             AWAKING => {}
-            DISCONNECTED => break Poll::Ready(Err(RecvError(()))),
+            DISCONNECTED => break Poll::Ready(Err(RecvError::Disconnected)),
             MESSAGE => {
                 // ORDERING: the sender has been dropped, so this update only
                 // needs to be visible to us.
@@ -461,7 +462,7 @@ impl<T> Future for Recv<T> {
                     Err(AWAKING) => recv_awaken(channel),
                     // The sender was dropped before sending anything while we prepared to park.
                     // The sender has taken the waker already.
-                    Err(DISCONNECTED) => Poll::Ready(Err(RecvError(()))),
+                    Err(DISCONNECTED) => Poll::Ready(Err(RecvError::Disconnected)),
                     Err(state) => unreachable!("unexpected channel state: {}", state),
                 }
             }
@@ -470,7 +471,7 @@ impl<T> Future for Recv<T> {
             // state. We busy loop here since we know the sender is done very soon.
             AWAKING => recv_awaken(channel),
             // The sender was dropped before sending anything.
-            DISCONNECTED => Poll::Ready(Err(RecvError(()))),
+            DISCONNECTED => Poll::Ready(Err(RecvError::Disconnected)),
             state => unreachable!("unexpected channel state: {}", state),
         }
     }
@@ -628,7 +629,7 @@ impl<T> Channel<T> {
                 // DISCONNECTED state. This means that it did not take the waker, so we are
                 // responsible for dropping it.
                 unsafe { self.drop_waker() };
-                Poll::Ready(Err(RecvError(())))
+                Poll::Ready(Err(RecvError::Disconnected))
             }
             Err(state) => unreachable!("unexpected channel state: {}", state),
         }
@@ -715,12 +716,37 @@ impl<T> fmt::Debug for SendError<T> {
 
 impl<T> std::error::Error for SendError<T> {}
 
-/// An error returned when receiving the message.
+/// Error returned by [`Receiver::try_recv`].
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+pub enum TryRecvError {
+    /// This channel is currently empty, but the sender has not yet disconnected, so data may yet
+    /// become available.
+    Empty,
+    /// The sender has become disconnected, and there will never be any more data received on it.
+    Disconnected,
+}
+
+impl fmt::Display for TryRecvError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TryRecvError::Empty => "receiving on an empty channel".fmt(f),
+            TryRecvError::Disconnected => "receiving on a closed channel".fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for TryRecvError {}
+
+/// An error returned when awaiting the message via [`Receiver`].
 ///
-/// The receiving operation can only fail if the corresponding [`Sender`] was dropped
-/// before sending any message, or if a message has already been received on the channel.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct RecvError(());
+/// This error indicates that the corresponding [`Sender`] was dropped before sending any message.
+/// Note that if a message was already received (e.g., via [`Receiver::try_recv`]), subsequent
+/// `try_recv` calls will return [`TryRecvError::Disconnected`] instead.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+pub enum RecvError {
+    /// The sender has become disconnected, and there will never be any more data received on it.
+    Disconnected,
+}
 
 impl fmt::Display for RecvError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

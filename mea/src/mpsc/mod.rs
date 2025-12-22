@@ -23,6 +23,7 @@ mod unbounded;
 pub use bounded::BoundedReceiver;
 pub use bounded::BoundedSender;
 pub use bounded::bounded;
+pub use error::RecvError;
 pub use error::SendError;
 pub use error::TryRecvError;
 pub use error::TrySendError;

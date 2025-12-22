@@ -109,6 +109,21 @@ impl<T> fmt::Debug for TrySendError<T> {
 
 impl<T> std::error::Error for TrySendError<T> {}
 
+/// Error returned by `recv`.
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+pub enum RecvError {
+    /// The sender has become disconnected, and there will never be any more data received on it.
+    Disconnected,
+}
+
+impl fmt::Display for RecvError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        "receiving on a closed channel".fmt(fmt)
+    }
+}
+
+impl std::error::Error for RecvError {}
+
 /// Error returned by `try_recv`.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum TryRecvError {
