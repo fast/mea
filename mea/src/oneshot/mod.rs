@@ -717,7 +717,7 @@ impl<T> fmt::Debug for SendError<T> {
 impl<T> std::error::Error for SendError<T> {}
 
 /// Error returned by [`Receiver::try_recv`].
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum TryRecvError {
     /// This channel is currently empty, but the sender has not yet disconnected, so data may yet
     /// become available.
@@ -729,8 +729,8 @@ pub enum TryRecvError {
 impl fmt::Display for TryRecvError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TryRecvError::Empty => "receiving on an empty channel".fmt(f),
-            TryRecvError::Disconnected => "receiving on a closed channel".fmt(f),
+            TryRecvError::Empty => write!(f, "receiving on an empty channel"),
+            TryRecvError::Disconnected => write!(f, "receiving on a closed channel"),
         }
     }
 }
@@ -742,7 +742,7 @@ impl std::error::Error for TryRecvError {}
 /// This error indicates that the corresponding [`Sender`] was dropped before sending any message.
 /// Note that if a message was already received (e.g., via [`Receiver::try_recv`]), subsequent
 /// `try_recv` calls will return [`TryRecvError::Disconnected`] instead.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum RecvError {
     /// The sender has become disconnected, and there will never be any more data received on it.
     Disconnected,
@@ -750,7 +750,7 @@ pub enum RecvError {
 
 impl fmt::Display for RecvError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        "receiving on a closed channel".fmt(f)
+        write!(f, "receiving on a closed channel")
     }
 }
 

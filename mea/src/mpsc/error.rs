@@ -27,7 +27,7 @@ use std::fmt;
 /// [`BoundedSender::send`]: crate::mpsc::BoundedSender::send
 /// [`UnboundedReceiver`]: crate::mpsc::UnboundedReceiver
 /// [`BoundedReceiver`]: crate::mpsc::BoundedReceiver
-#[derive(Eq, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct SendError<T>(T);
 
 impl<T> SendError<T> {
@@ -62,7 +62,7 @@ impl<T> fmt::Debug for SendError<T> {
 impl<T> std::error::Error for SendError<T> {}
 
 /// Error returned by `try_send`.
-#[derive(Eq, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum TrySendError<T> {
     /// The channel is full, so data may not be sent at this time, but the receiver has not yet
     /// disconnected.
@@ -110,7 +110,7 @@ impl<T> fmt::Debug for TrySendError<T> {
 impl<T> std::error::Error for TrySendError<T> {}
 
 /// Error returned by `recv`.
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecvError {
     /// The sender has become disconnected, and there will never be any more data received on it.
     Disconnected,
@@ -125,7 +125,7 @@ impl fmt::Display for RecvError {
 impl std::error::Error for RecvError {}
 
 /// Error returned by `try_recv`.
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TryRecvError {
     /// This channel is currently empty, but the sender(s) have not yet disconnected, so data may
     /// yet become available.
