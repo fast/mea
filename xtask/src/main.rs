@@ -63,7 +63,7 @@ struct CommandTest {
 
 impl CommandTest {
     fn run(self) {
-        run_command(make_test_cmd(self.no_capture, true, &[]));
+        run_command(make_test_cmd(self.no_capture, &[]));
     }
 }
 
@@ -128,12 +128,9 @@ fn make_build_cmd(locked: bool) -> StdCommand {
     cmd
 }
 
-fn make_test_cmd(no_capture: bool, default_features: bool, features: &[&str]) -> StdCommand {
+fn make_test_cmd(no_capture: bool, features: &[&str]) -> StdCommand {
     let mut cmd = find_command("cargo");
-    cmd.args(["test", "--workspace"]);
-    if !default_features {
-        cmd.arg("--no-default-features");
-    }
+    cmd.args(["test", "--workspace", "--no-default-features"]);
     if !features.is_empty() {
         cmd.args(["--features", features.join(",").as_str()]);
     }
@@ -145,7 +142,7 @@ fn make_test_cmd(no_capture: bool, default_features: bool, features: &[&str]) ->
 
 fn make_format_cmd(fix: bool) -> StdCommand {
     let mut cmd = find_command("cargo");
-    cmd.args(["fmt", "--all"]);
+    cmd.args(["+nightly", "fmt", "--all"]);
     if !fix {
         cmd.arg("--check");
     }
@@ -155,6 +152,7 @@ fn make_format_cmd(fix: bool) -> StdCommand {
 fn make_clippy_cmd(fix: bool) -> StdCommand {
     let mut cmd = find_command("cargo");
     cmd.args([
+        "+nightly",
         "clippy",
         "--tests",
         "--all-features",
