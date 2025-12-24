@@ -717,7 +717,7 @@ impl<T> fmt::Debug for SendError<T> {
 impl<T> std::error::Error for SendError<T> {}
 
 /// Error returned by [`Receiver::try_recv`].
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum TryRecvError {
     /// This channel is currently empty, but the sender has not yet disconnected, so data may yet
     /// become available.
@@ -742,7 +742,7 @@ impl std::error::Error for TryRecvError {}
 /// This error indicates that the corresponding [`Sender`] was dropped before sending any message.
 /// Note that if a message was already received (e.g., via [`Receiver::try_recv`]), subsequent
 /// `try_recv` calls will return [`TryRecvError::Disconnected`] instead.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum RecvError {
     /// The sender has become disconnected, and there will never be any more data received on it.
     Disconnected,

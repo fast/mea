@@ -125,7 +125,7 @@ pub fn channel<T: Clone>(capacity: usize) -> (Sender<T>, Receiver<T>) {
 }
 
 /// Error returned by [`Receiver::recv`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecvError {
     /// The receiver lagged too far behind.
     ///
@@ -148,7 +148,7 @@ impl fmt::Display for RecvError {
 impl std::error::Error for RecvError {}
 
 /// Error returned by [`Receiver::try_recv`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TryRecvError {
     /// This channel is currently empty, but the sender(s) have not yet disconnected, so data may
     /// yet become available.

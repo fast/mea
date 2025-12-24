@@ -110,7 +110,7 @@ impl<T> fmt::Debug for TrySendError<T> {
 impl<T> std::error::Error for TrySendError<T> {}
 
 /// Error returned by `recv`.
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum RecvError {
     /// The sender has become disconnected, and there will never be any more data received on it.
     Disconnected,
@@ -125,7 +125,7 @@ impl fmt::Display for RecvError {
 impl std::error::Error for RecvError {}
 
 /// Error returned by `try_recv`.
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum TryRecvError {
     /// This channel is currently empty, but the sender(s) have not yet disconnected, so data may
     /// yet become available.
