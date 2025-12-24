@@ -199,11 +199,15 @@ impl Once {
     /// # }
     /// ```
     pub async fn wait(&self) {
-        let fut = OnceWait {
+        if self.is_completed() {
+            return;
+        }
+
+        OnceWait {
             idx: None,
             once: self,
-        };
-        fut.await
+        }
+        .await
     }
 }
 
@@ -228,9 +232,9 @@ impl Future for OnceWait<'_> {
         if once.done.spin_wait(16).is_err() {
             once.done.register_waker(idx, cx);
             // double check after register waker, to catch the update between two steps
-            if once.done.spin_wait(0).is_err() {
+            if !once.is_completed() {
                 return Poll::Pending;
-            }
+            };
         }
 
         Poll::Ready(())
