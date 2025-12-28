@@ -23,11 +23,11 @@
 //! Basic usage:
 //!
 //! ```
-//! use mea::broadcast;
+//! use mea::broadcast::overflow;
 //!
 //! # #[tokio::main]
 //! # async fn main() {
-//! let (tx, mut rx1) = broadcast::channel(16);
+//! let (tx, mut rx1) = overflow::channel(16);
 //! let mut rx2 = tx.subscribe();
 //!
 //! tx.send(10);
@@ -43,12 +43,12 @@
 //! Handling lag:
 //!
 //! ```
-//! use mea::broadcast;
-//! use mea::broadcast::RecvError;
+//! use mea::broadcast::overflow;
+//! use mea::broadcast::overflow::RecvError;
 //!
 //! # #[tokio::main]
 //! # async fn main() {
-//! let (tx, mut rx) = broadcast::channel(2);
+//! let (tx, mut rx) = overflow::channel(2);
 //!
 //! tx.send(1);
 //! tx.send(2);
@@ -89,9 +89,9 @@ mod tests;
 /// # Examples
 ///
 /// ```
-/// use mea::broadcast;
+/// use mea::broadcast::overflow;
 ///
-/// let (tx, mut rx) = broadcast::channel(16);
+/// let (tx, mut rx) = overflow::channel(16);
 /// tx.send(10);
 /// assert_eq!(rx.try_recv(), Ok(10));
 /// ```
@@ -237,9 +237,9 @@ impl<T> Sender<T> {
     /// # Examples
     ///
     /// ```
-    /// use mea::broadcast;
+    /// use mea::broadcast::overflow;
     ///
-    /// let (tx, mut rx) = broadcast::channel(16);
+    /// let (tx, mut rx) = overflow::channel(16);
     /// tx.send(10);
     /// assert_eq!(rx.try_recv(), Ok(10));
     /// ```
@@ -262,12 +262,12 @@ impl<T> Sender<T> {
     /// # Examples
     ///
     /// ```
-    /// use mea::broadcast;
-    /// use mea::broadcast::TryRecvError;
+    /// use mea::broadcast::overflow;
+    /// use mea::broadcast::overflow::TryRecvError;
     ///
     /// # #[tokio::main]
     /// # async fn main() {
-    /// let (tx, _) = broadcast::channel(16);
+    /// let (tx, _) = overflow::channel(16);
     /// tx.send(10);
     ///
     /// let mut rx = tx.subscribe();
@@ -316,11 +316,11 @@ impl<T: Clone> Receiver<T> {
     /// # Examples
     ///
     /// ```
-    /// use mea::broadcast;
+    /// use mea::broadcast::overflow;
     ///
     /// # #[tokio::main]
     /// # async fn main() {
-    /// let (tx, mut rx) = broadcast::channel(16);
+    /// let (tx, mut rx) = overflow::channel(16);
     /// tx.send(10);
     /// assert_eq!(rx.recv().await, Ok(10));
     /// # }
@@ -330,7 +330,7 @@ impl<T: Clone> Receiver<T> {
             receiver: self,
             index: None,
         }
-            .await
+        .await
     }
 
     /// Attempts to receive the next value for this receiver without blocking.
@@ -348,9 +348,9 @@ impl<T: Clone> Receiver<T> {
     /// # Examples
     ///
     /// ```
-    /// use mea::broadcast;
+    /// use mea::broadcast::overflow;
     ///
-    /// let (tx, mut rx) = broadcast::channel(16);
+    /// let (tx, mut rx) = overflow::channel(16);
     /// tx.send(10);
     /// assert_eq!(rx.try_recv(), Ok(10));
     /// ```
@@ -414,9 +414,9 @@ impl<T> Receiver<T> {
     /// # Examples
     ///
     /// ```
-    /// use mea::broadcast;
+    /// use mea::broadcast::overflow;
     ///
-    /// let (tx, mut rx) = broadcast::channel(2);
+    /// let (tx, mut rx) = overflow::channel(2);
     /// tx.send(1);
     /// tx.send(2);
     ///
