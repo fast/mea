@@ -99,9 +99,15 @@ pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
 }
 
 /// Sends a value to the associated [`Receiver`].
-#[derive(Debug)]
 pub struct Sender<T> {
     channel_ptr: NonNull<Channel<T>>,
+}
+
+impl<T> fmt::Debug for Sender<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Sender")
+            .finish_non_exhaustive()
+    }
 }
 
 unsafe impl<T: Send> Send for Sender<T> {}
@@ -247,9 +253,15 @@ impl<T> Drop for Sender<T> {
 }
 
 /// Receives a value from the associated [`Sender`].
-#[derive(Debug)]
 pub struct Receiver<T> {
     channel_ptr: NonNull<Channel<T>>,
+}
+
+impl<T> fmt::Debug for Receiver<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Receiver")
+            .finish_non_exhaustive()
+    }
 }
 
 unsafe impl<T: Send> Send for Receiver<T> {}
@@ -368,9 +380,15 @@ impl<T> Drop for Receiver<T> {
 
 /// A future that completes when the message is sent from the associated [`Sender`], or the
 /// [`Sender`] is dropped before sending a message.
-#[derive(Debug)]
 pub struct Recv<T> {
     channel_ptr: NonNull<Channel<T>>,
+}
+
+impl<T> fmt::Debug for Recv<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Recv")
+            .finish_non_exhaustive()
+    }
 }
 
 unsafe impl<T: Send> Send for Recv<T> {}
