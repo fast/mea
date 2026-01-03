@@ -105,8 +105,7 @@ pub struct Sender<T> {
 
 impl<T> fmt::Debug for Sender<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Sender")
-            .finish_non_exhaustive()
+        f.debug_struct("Sender").finish_non_exhaustive()
     }
 }
 
@@ -259,8 +258,7 @@ pub struct Receiver<T> {
 
 impl<T> fmt::Debug for Receiver<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Receiver")
-            .finish_non_exhaustive()
+        f.debug_struct("Receiver").finish_non_exhaustive()
     }
 }
 
@@ -386,8 +384,7 @@ pub struct Recv<T> {
 
 impl<T> fmt::Debug for Recv<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Recv")
-            .finish_non_exhaustive()
+        f.debug_struct("Recv").finish_non_exhaustive()
     }
 }
 
