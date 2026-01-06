@@ -15,31 +15,29 @@
 use std::task::Context;
 use std::task::Waker;
 
-use slab::Slab;
-
 #[derive(Debug)]
 pub(crate) struct WaitSet {
-    waiters: Slab<Waker>,
+    waiters: Vec<Waker>,
 }
 
 impl WaitSet {
     /// Construct a new, empty wait set.
     pub const fn new() -> Self {
         Self {
-            waiters: Slab::new(),
+            waiters: Vec::new(),
         }
     }
 
     /// Construct a new, empty wait set with the specified capacity.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            waiters: Slab::with_capacity(capacity),
+            waiters: Vec::with_capacity(capacity),
         }
     }
 
     /// Drain and wake up all waiters.
     pub(crate) fn wake_all(&mut self) {
-        for w in self.waiters.drain() {
+        for w in self.waiters.drain(..) {
             w.wake();
         }
     }
@@ -51,11 +49,11 @@ impl WaitSet {
     pub(crate) fn register_waker(&mut self, idx: &mut Option<usize>, cx: &mut Context<'_>) {
         match *idx {
             None => {
-                let key = self.waiters.insert(cx.waker().clone());
-                *idx = Some(key);
+                self.waiters.push(cx.waker().clone());
+                *idx = Some(self.waiters.len() - 1);
             }
             Some(key) => {
-                if self.waiters.contains(key) {
+                if key < self.waiters.len() {
                     if !self.waiters[key].will_wake(cx.waker()) {
                         self.waiters[key] = cx.waker().clone();
                     }
@@ -71,8 +69,8 @@ impl WaitSet {
                     //
                     // Barrier holds the lock during check and register, so the race condition
                     // above won't happen.
-                    let key = self.waiters.insert(cx.waker().clone());
-                    *idx = Some(key);
+                    self.waiters.push(cx.waker().clone());
+                    *idx = Some(self.waiters.len() - 1);
                 }
             }
         }
