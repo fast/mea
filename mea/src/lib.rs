@@ -81,6 +81,7 @@ pub mod once;
 pub mod oneshot;
 pub mod rwlock;
 pub mod semaphore;
+pub mod singleflight;
 pub mod shutdown;
 pub mod waitgroup;
 
