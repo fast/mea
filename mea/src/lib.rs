@@ -15,13 +15,11 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![deny(missing_docs)]
 
-//! # Mea - Make Easy Async
-//!
 //! `mea` is a runtime-agnostic library providing essential synchronization primitives for
 //! asynchronous Rust programming. The library offers a collection of well-tested, efficient
 //! synchronization tools that work with any async runtime.
 //!
-//! ## Features
+//! # Features
 //!
 //! * [`Barrier`]: A synchronization point where multiple tasks can wait until all participants
 //!   arrive
@@ -37,20 +35,21 @@
 //!   shutdown signals
 //! * [`WaitGroup`]: A synchronization primitive that allows waiting for multiple tasks to complete
 //! * [`atomicbox`]: A safe, owning version of `AtomicPtr` for heap-allocated data.
-//! * [`broadcast::channel`]: A multi-producer, multi-consumer broadcast channel.
+//! * [`broadcast`]: A multi-producer, multi-consumer broadcast channel.
 //! * [`mpsc::bounded`]: A multi-producer, single-consumer bounded queue for sending values between
 //!   asynchronous tasks.
 //! * [`mpsc::unbounded`]: A multi-producer, single-consumer unbounded queue for sending values
 //!   between asynchronous tasks.
 //! * [`oneshot::channel`]: A one-shot channel for sending a single value between tasks.
+//! * [`singleflight::Group`]: A duplicate function call suppression mechanism.
 //!
-//! ## Runtime Agnostic
+//! # Runtime Agnostic
 //!
 //! All synchronization primitives in this library are runtime-agnostic, meaning they can be used
 //! with any async runtime like Tokio, async-std, or others. This makes the library highly versatile
 //! and portable.
 //!
-//! ## Thread Safety
+//! # Thread Safety
 //!
 //! All types in this library implement `Send` and `Sync`, making them safe to share across thread
 //! boundaries. This is essential for concurrent programming where data needs to be accessed from
@@ -82,6 +81,7 @@ pub mod oneshot;
 pub mod rwlock;
 pub mod semaphore;
 pub mod shutdown;
+pub mod singleflight;
 pub mod waitgroup;
 
 #[cfg(test)]

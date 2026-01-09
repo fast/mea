@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### New features
+
+* Implement `Singleflight` pattern for deduplicating concurrent requests.
+
 ## [0.6.0] - 2025-01-04
 
 ### Breaking changes

@@ -1,0 +1,149 @@
+// Copyright 2024 tison <wander4096@gmail.com>
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Singleflight provides a duplicate function call suppression mechanism.
+
+use std::collections::HashMap;
+use std::hash::Hash;
+use std::sync::Arc;
+
+use crate::internal::Mutex;
+use crate::once::OnceCell;
+
+#[cfg(test)]
+mod tests;
+
+/// Group represents a class of work and forms a namespace in which
+/// units of work can be executed with duplicate suppression.
+#[derive(Debug)]
+pub struct Group<K, V> {
+    map: Mutex<HashMap<K, Arc<OnceCell<V>>>>,
+}
+
+impl<K, V> Default for Group<K, V>
+where
+    K: Eq + Hash + Clone,
+    V: Clone,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<K, V> Group<K, V>
+where
+    K: Eq + Hash + Clone,
+    V: Clone,
+{
+    /// Creates a new Group.
+    pub fn new() -> Self {
+        Self {
+            map: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Executes and returns the results of the given function, making sure that only one execution
+    /// is in-flight for a given key at a time.
+    ///
+    /// If a duplicate comes in, the duplicate caller waits for the original to complete and
+    /// receives the same results.
+    ///
+    /// Once the function completes, the key, if not [`forgotten`], is removed from the group,
+    /// allowing future calls with the same key to execute the function again.
+    ///
+    /// [`forgotten`]: Self::forget
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use std::sync::atomic::AtomicUsize;
+    /// use std::sync::atomic::Ordering;
+    /// use std::time::Duration;
+    ///
+    /// use mea::singleflight::Group;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() {
+    /// let group = Group::new();
+    /// let counter = Arc::new(AtomicUsize::new(0));
+    ///
+    /// let c1 = counter.clone();
+    /// let fut1 = group.work("key", || async move {
+    ///     c1.fetch_add(1, Ordering::SeqCst);
+    ///     // simulate heavy work to avoid immediate completion
+    ///     tokio::time::sleep(Duration::from_millis(100)).await;
+    ///     "result"
+    /// });
+    ///
+    /// let c2 = counter.clone();
+    /// let fut2 = group.work("key", || async move {
+    ///     c2.fetch_add(1, Ordering::SeqCst);
+    ///     // simulate heavy work to avoid immediate completion
+    ///     tokio::time::sleep(Duration::from_millis(100)).await;
+    ///     "result"
+    /// });
+    ///
+    /// let (r1, r2) = tokio::join!(fut1, fut2);
+    ///
+    /// assert_eq!(r1, "result");
+    /// assert_eq!(r2, "result");
+    /// assert_eq!(counter.load(Ordering::SeqCst), 1);
+    /// # }
+    /// ```
+    pub async fn work<F>(&self, key: K, func: F) -> V
+    where
+        F: AsyncFnOnce() -> V,
+    {
+        // 1. Get or create the OnceCell.
+        let cell = {
+            let mut map = self.map.lock();
+            map.entry(key.clone())
+                .or_insert_with(|| Arc::new(OnceCell::new()))
+                .clone()
+        };
+
+        // 2. Try to initialize the cell.
+        // OnceCell::get_or_init guarantees that only one task executes the closure.
+        let res = cell
+            .get_or_init(async || {
+                // I am the leader.
+                let result = func().await;
+
+                // Cleanup: remove the key from the map.
+                // We must ensure we remove the entry corresponding to *this* cell.
+                let mut map = self.map.lock();
+                if let Some(existing) = map.get(&key) {
+                    // Check if the map still points to our cell.
+                    if Arc::ptr_eq(&cell, existing) {
+                        map.remove(&key);
+                    }
+                }
+
+                result
+            })
+            .await;
+
+        res.clone()
+    }
+
+    /// Forgets about the given key.
+    ///
+    /// Future calls to `work` for this key will call the function rather than waiting for an
+    /// earlier call to complete. Existing calls to `work` for this key are not affected.
+    pub fn forget(&self, key: &K) {
+        let mut map = self.map.lock();
+        map.remove(key);
+    }
+}
