@@ -15,7 +15,9 @@
 //! Singleflight provides a duplicate function call suppression mechanism.
 
 use std::collections::HashMap;
+use std::hash::BuildHasher;
 use std::hash::Hash;
+use std::hash::RandomState;
 use std::sync::Arc;
 
 use crate::internal::Mutex;
@@ -27,29 +29,44 @@ mod tests;
 /// Group represents a class of work and forms a namespace in which
 /// units of work can be executed with duplicate suppression.
 #[derive(Debug)]
-pub struct Group<K, V> {
-    map: Mutex<HashMap<K, Arc<OnceCell<V>>>>,
+pub struct Group<K, V, S = RandomState> {
+    map: Mutex<HashMap<K, Arc<OnceCell<V>>, S>>,
 }
 
-impl<K, V> Default for Group<K, V>
+impl<K, V, S> Default for Group<K, V, S>
 where
     K: Eq + Hash + Clone,
     V: Clone,
+    S: BuildHasher + Clone + Default,
 {
     fn default() -> Self {
-        Self::new()
+        Self::with_hasher(S::default())
     }
 }
 
-impl<K, V> Group<K, V>
+impl<K, V> Group<K, V, RandomState>
 where
     K: Eq + Hash + Clone,
     V: Clone,
 {
-    /// Creates a new Group.
+    /// Creates a new Group with the default hasher.
     pub fn new() -> Self {
         Self {
             map: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+impl<K, V, S> Group<K, V, S>
+where
+    K: Eq + Hash + Clone,
+    V: Clone,
+    S: BuildHasher + Clone,
+{
+    /// Creates a new Group with the given hasher.
+    pub fn with_hasher(hasher: S) -> Self {
+        Self {
+            map: Mutex::new(HashMap::with_hasher(hasher)),
         }
     }
 

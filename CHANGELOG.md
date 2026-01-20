@@ -6,9 +6,15 @@ All notable changes to this project will be documented in this file.
 
 ### New features
 
-* Implement `Singleflight` pattern for deduplicating concurrent requests.
+* `singleflight::Group` now supports custom hashers for keys.
 
-## [0.6.0] - 2025-01-04
+## [0.6.1] - 2026-01-11
+
+### New features
+
+* Implement `singleflight` pattern for deduplicating concurrent requests.
+
+## [0.6.0] - 2026-01-04
 
 ### Breaking changes
 
