@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 use std::hash::Hash;
@@ -77,7 +78,7 @@ where
         }
     }
 
-    /// Compute the value for the given key if not already computed.
+    /// Compute the value for the given key if absent.
     ///
     /// If the value for the key is already being computed by another task, this task will wait for
     /// the computation to finish and return the result.
@@ -99,8 +100,37 @@ where
         res.clone()
     }
 
+    /// Compute the value for the given key if absent.
+    ///
+    /// If the value for the key is already being computed by another task, this task will wait for
+    /// the computation to finish and return the result.
+    ///
+    /// If the computation fails, the error is returned and the value is not stored. Other tasks
+    /// waiting for the value will retry the computation.
+    pub async fn try_compute<E, F>(&self, key: K, func: F) -> Result<V, E>
+    where
+        F: AsyncFnOnce() -> Result<V, E>,
+    {
+        // 1. Get or create the OnceCell.
+        let cell = {
+            let mut map = self.map.lock();
+            map.entry(key.clone())
+                .or_insert_with(|| Arc::new(OnceCell::new()))
+                .clone()
+        };
+
+        // 2. Try to initialize the cell.
+        // OnceCell::get_or_try_init guarantees that only one task executes the closure.
+        let res = cell.get_or_try_init(func).await?;
+        Ok(res.clone())
+    }
+
     /// Get a clone of the value for the given key if exists.
-    pub fn get(&self, key: &K) -> Option<V> {
+    pub fn get<Q: ?Sized>(&self, key: &Q) -> Option<V>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq,
+    {
         let map = self.map.lock();
         let cell = map.get(key)?;
         cell.get().cloned()
@@ -111,7 +141,11 @@ where
     /// If you need to get the value that has been remove, use the [`remove`] method instead.
     ///
     /// [`remove`]: Self::remove
-    pub fn forget(&self, key: &K) {
+    pub fn forget<Q: ?Sized>(&self, key: &Q)
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq,
+    {
         let mut map = self.map.lock();
         map.remove(key);
     }
@@ -122,7 +156,11 @@ where
     /// instead.
     ///
     /// [`forget`]: Self::forget
-    pub fn remove(&self, key: &K) -> Option<V> {
+    pub fn remove<Q: ?Sized>(&self, key: &Q) -> Option<V>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq,
+    {
         let cell = self.map.lock().remove(key)?;
         cell.get().cloned()
     }

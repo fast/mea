@@ -14,6 +14,7 @@
 
 //! Singleflight provides a duplicate function call suppression mechanism.
 
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 use std::hash::Hash;
@@ -135,7 +136,6 @@ where
         // OnceCell::get_or_init guarantees that only one task executes the closure.
         let res = cell
             .get_or_init(async || {
-                // I am the leader.
                 let result = func().await;
 
                 // Cleanup: remove the key from the map.
@@ -155,11 +155,96 @@ where
         res.clone()
     }
 
+    /// Executes and returns the results of the given function, making sure that only one execution
+    /// is in-flight for a given key at a time.
+    ///
+    /// If a duplicate comes in, the duplicate caller waits for the original to complete and
+    /// receives the same results.
+    ///
+    /// If the computation fails, the error is returned for the caller. Other tasks waiting for the
+    /// result will retry the computation.
+    ///
+    /// Once the function completes successfully, the key, if not [`forgotten`], is removed from
+    /// the group, allowing future calls with the same key to execute the function again.
+    ///
+    /// [`forgotten`]: Self::forget
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use std::sync::atomic::AtomicUsize;
+    /// use std::sync::atomic::Ordering;
+    /// use std::time::Duration;
+    ///
+    /// use mea::singleflight::Group;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() {
+    /// let group = Group::new();
+    ///
+    /// let fut1 = group.try_work("key", || async move {
+    ///     // simulate heavy work to avoid immediate completion
+    ///     tokio::time::sleep(Duration::from_millis(100)).await;
+    ///     Err::<_, &'static str>("fut1")
+    /// });
+    ///
+    /// let fut2 = group.try_work("key", || async move {
+    ///     // simulate heavy work to avoid immediate completion
+    ///     tokio::time::sleep(Duration::from_millis(200)).await;
+    ///     Ok::<_, &'static str>("fut2")
+    /// });
+    ///
+    /// let (r1, r2) = tokio::join!(fut1, fut2);
+    ///
+    /// assert_eq!(r1, Err("fut1"));
+    /// assert_eq!(r2, Ok("fut2"));
+    /// # }
+    /// ```
+    pub async fn try_work<E, F>(&self, key: K, func: F) -> Result<V, E>
+    where
+        F: AsyncFnOnce() -> Result<V, E>,
+    {
+        // 1. Get or create the OnceCell.
+        let cell = {
+            let mut map = self.map.lock();
+            map.entry(key.clone())
+                .or_insert_with(|| Arc::new(OnceCell::new()))
+                .clone()
+        };
+
+        // 2. Try to initialize the cell.
+        // OnceCell::get_or_try_init guarantees that only one task executes the closure.
+        let res = cell
+            .get_or_try_init(async || {
+                let result = func().await?;
+
+                // Cleanup: remove the key from the map.
+                // We must ensure we remove the entry corresponding to *this* cell.
+                let mut map = self.map.lock();
+                if let Some(existing) = map.get(&key) {
+                    // Check if the map still points to our cell.
+                    if Arc::ptr_eq(&cell, existing) {
+                        map.remove(&key);
+                    }
+                }
+
+                Ok(result)
+            })
+            .await?;
+
+        Ok(res.clone())
+    }
+
     /// Forgets about the given key.
     ///
     /// Future calls to `work` for this key will call the function rather than waiting for an
     /// earlier call to complete. Existing calls to `work` for this key are not affected.
-    pub fn forget(&self, key: &K) {
+    pub fn forget<Q: ?Sized>(&self, key: &Q)
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq,
+    {
         let mut map = self.map.lock();
         map.remove(key);
     }
