@@ -21,6 +21,9 @@ use std::sync::Arc;
 use crate::internal::Mutex;
 use crate::once::OnceCell;
 
+#[cfg(test)]
+mod tests;
+
 /// Run computation only once and store the results in a hash map.
 ///
 /// Note that this always clones the value out of the underlying map. Because of this, it's common

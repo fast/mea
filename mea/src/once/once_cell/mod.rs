@@ -22,6 +22,9 @@ use std::sync::atomic::Ordering;
 use crate::semaphore::Semaphore;
 use crate::semaphore::SemaphorePermit;
 
+#[cfg(test)]
+mod tests;
+
 /// A thread-safe cell which can nominally be written to only once.
 ///
 /// # Examples
