@@ -29,6 +29,7 @@
 //! * [`Once`]: A primitive that ensures a one-time asynchronous operation runs at most once, even
 //!   when called concurrently
 //! * [`OnceCell`]: A cell that can be written to at most once and provides safe concurrent access
+//! * [`OnceMap`]: A hash map that runs computation only once for each key and stores the result.
 //! * [`RwLock`]: A reader-writer lock that allows multiple readers or a single writer at a time
 //! * [`Semaphore`]: A synchronization primitive that controls access to a shared resource
 //! * [`ShutdownSend`] & [`ShutdownRecv`]: A composite synchronization primitive for managing

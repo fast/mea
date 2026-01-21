@@ -6,7 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### New features
 
+* Implement `once::OnceMap` to run computation only once and store the results in a hash map.
 * `singleflight::Group` now supports custom hashers for keys.
+* `singleflight::Group::remove` now accepts any `&Q` where `Q: ?Sized + Hash + Eq` and `K: Borrow<Q>` aligning with standard HashMap's interface.
 
 ## [0.6.1] - 2026-01-11
 

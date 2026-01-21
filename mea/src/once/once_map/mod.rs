@@ -25,7 +25,7 @@ use crate::once::OnceCell;
 #[cfg(test)]
 mod tests;
 
-/// Run computation only once and store the results in a hash map.
+/// A hash map that runs computation only once for each key and stores the result.
 ///
 /// Note that this always clones the value out of the underlying map. Because of this, it's common
 /// to wrap the `V` in an `Arc<V>` to make cloning cheap.
