@@ -56,6 +56,13 @@ where
             map: Mutex::new(HashMap::new()),
         }
     }
+
+    /// Creates a new OnceMap with the default hasher and the specified capacity.
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            map: Mutex::new(HashMap::with_capacity(capacity)),
+        }
+    }
 }
 
 impl<K, V, S> OnceMap<K, V, S>
@@ -126,10 +133,10 @@ where
     }
 
     /// Get a clone of the value for the given key if exists.
-    pub fn get<Q: ?Sized>(&self, key: &Q) -> Option<V>
+    pub fn get<Q>(&self, key: &Q) -> Option<V>
     where
         K: Borrow<Q>,
-        Q: Hash + Eq,
+        Q: Hash + Eq + ?Sized,
     {
         let map = self.map.lock();
         let cell = map.get(key)?;
@@ -141,10 +148,10 @@ where
     /// If you need to get the value that has been remove, use the [`remove`] method instead.
     ///
     /// [`remove`]: Self::remove
-    pub fn forget<Q: ?Sized>(&self, key: &Q)
+    pub fn discard<Q>(&self, key: &Q)
     where
         K: Borrow<Q>,
-        Q: Hash + Eq,
+        Q: Hash + Eq + ?Sized,
     {
         let mut map = self.map.lock();
         map.remove(key);
@@ -152,14 +159,14 @@ where
 
     /// Remove the given key from the map and return a *clone* of the value if exists.
     ///
-    /// If you do not need to get the value that has been removed, use the [`forget`] method
+    /// If you do not need to get the value that has been removed, use the [`discard`] method
     /// instead.
     ///
-    /// [`forget`]: Self::forget
-    pub fn remove<Q: ?Sized>(&self, key: &Q) -> Option<V>
+    /// [`discard`]: Self::discard
+    pub fn remove<Q>(&self, key: &Q) -> Option<V>
     where
         K: Borrow<Q>,
-        Q: Hash + Eq,
+        Q: Hash + Eq + ?Sized,
     {
         let cell = self.map.lock().remove(key)?;
         cell.get().cloned()

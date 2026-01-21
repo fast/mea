@@ -240,10 +240,10 @@ where
     ///
     /// Future calls to `work` for this key will call the function rather than waiting for an
     /// earlier call to complete. Existing calls to `work` for this key are not affected.
-    pub fn forget<Q: ?Sized>(&self, key: &Q)
+    pub fn forget<Q>(&self, key: &Q)
     where
         K: Borrow<Q>,
-        Q: Hash + Eq,
+        Q: Hash + Eq + ?Sized,
     {
         let mut map = self.map.lock();
         map.remove(key);

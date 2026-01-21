@@ -62,6 +62,7 @@
 //! [`Mutex`]: mutex::Mutex
 //! [`Once`]: once::Once
 //! [`OnceCell`]: once::OnceCell
+//! [`OnceMap`]: once::OnceMap
 //! [`RwLock`]: rwlock::RwLock
 //! [`Semaphore`]: semaphore::Semaphore
 //! [`ShutdownSend`]: shutdown::ShutdownSend
