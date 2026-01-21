@@ -36,7 +36,7 @@ pub struct OnceMap<K, V, S = RandomState> {
 
 impl<K, V, S> Default for OnceMap<K, V, S>
 where
-    K: Eq + Hash + Clone,
+    K: Eq + Hash,
     V: Clone,
     S: BuildHasher + Clone + Default,
 {
@@ -47,7 +47,7 @@ where
 
 impl<K, V> OnceMap<K, V, RandomState>
 where
-    K: Eq + Hash + Clone,
+    K: Eq + Hash,
     V: Clone,
 {
     /// Creates a new OnceMap with the default hasher.
@@ -67,7 +67,7 @@ where
 
 impl<K, V, S> OnceMap<K, V, S>
 where
-    K: Eq + Hash + Clone,
+    K: Eq + Hash,
     V: Clone,
     S: BuildHasher + Clone,
 {
@@ -96,7 +96,7 @@ where
         // 1. Get or create the OnceCell.
         let cell = {
             let mut map = self.map.lock();
-            map.entry(key.clone())
+            map.entry(key)
                 .or_insert_with(|| Arc::new(OnceCell::new()))
                 .clone()
         };
@@ -121,7 +121,7 @@ where
         // 1. Get or create the OnceCell.
         let cell = {
             let mut map = self.map.lock();
-            map.entry(key.clone())
+            map.entry(key)
                 .or_insert_with(|| Arc::new(OnceCell::new()))
                 .clone()
         };

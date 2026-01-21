@@ -4,12 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Improvements
+
+* `OnceMap` no longer requires `K: Clone` everywhere.
+
 ## [0.6.2] - 2026-01-21
 
 ### New features
 
 * Implement `once::OnceMap` to run computation only once and store the results in a hash map.
 * `singleflight::Group` now supports custom hashers for keys.
+
+### Improvements
+
 * `singleflight::Group::forget` now accepts any `&Q` where `Q: ?Sized + Hash + Eq` and `K: Borrow<Q>` aligning with standard HashMap's interface.
 
 ## [0.6.1] - 2026-01-11
