@@ -106,6 +106,7 @@ mod tests {
     use crate::mutex::MutexGuard;
     use crate::once::Once;
     use crate::once::OnceCell;
+    use crate::once::OnceMap;
     use crate::oneshot;
     use crate::rwlock::RwLock;
     use crate::rwlock::RwLockReadGuard;
@@ -113,6 +114,7 @@ mod tests {
     use crate::semaphore::Semaphore;
     use crate::shutdown::ShutdownRecv;
     use crate::shutdown::ShutdownSend;
+    use crate::singleflight;
     use crate::waitgroup::Wait;
     use crate::waitgroup::WaitGroup;
 
@@ -123,6 +125,8 @@ mod tests {
         do_assert_send_and_sync::<Condvar>();
         do_assert_send_and_sync::<Once>();
         do_assert_send_and_sync::<OnceCell<u32>>();
+        do_assert_send_and_sync::<OnceMap<String, u32>>();
+        do_assert_send_and_sync::<singleflight::Group<String, u32>>();
         do_assert_send_and_sync::<Latch>();
         do_assert_send_and_sync::<Semaphore>();
         do_assert_send_and_sync::<ShutdownSend>();
@@ -161,6 +165,8 @@ mod tests {
         do_assert_unpin::<Latch>();
         do_assert_unpin::<Once>();
         do_assert_unpin::<OnceCell<u32>>();
+        do_assert_unpin::<OnceMap<String, u32>>();
+        do_assert_unpin::<singleflight::Group<String, u32>>();
         do_assert_unpin::<Semaphore>();
         do_assert_unpin::<ShutdownSend>();
         do_assert_unpin::<ShutdownRecv>();

@@ -145,7 +145,7 @@ where
 
     /// Remove the given key from the map.
     ///
-    /// If you need to get the value that has been remove, use the [`remove`] method instead.
+    /// If you need to get the value that has been removed, use the [`remove`] method instead.
     ///
     /// [`remove`]: Self::remove
     pub fn discard<Q>(&self, key: &Q)
