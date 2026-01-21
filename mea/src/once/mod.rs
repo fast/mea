@@ -24,9 +24,11 @@
 #[allow(clippy::module_inception)]
 mod once;
 mod once_cell;
+mod once_map;
 
 pub use self::once::Once;
 pub use self::once_cell::OnceCell;
+pub use self::once_map::OnceMap;
 
 #[cfg(test)]
 mod tests;
