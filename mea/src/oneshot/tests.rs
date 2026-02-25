@@ -307,3 +307,20 @@ fn poll_then_drop_receiver_during_send() {
     // The send operation should also not have panicked
     t.join().unwrap();
 }
+
+#[test]
+fn dropping_sender_disconnects_async_receiver() {
+    let (sender, receiver) = oneshot::channel::<()>();
+    assert!(!sender.is_closed());
+    assert!(!receiver.is_closed());
+    drop(sender);
+    assert!(receiver.is_closed());
+}
+
+#[test]
+fn async_receiver_has_message() {
+    let (sender, receiver) = oneshot::channel();
+    assert!(!receiver.has_message());
+    assert!(sender.send(19i128).is_ok());
+    assert!(receiver.has_message());
+}
