@@ -14,6 +14,7 @@
 
 use std::future::Future;
 use std::future::IntoFuture;
+use std::hint::spin_loop;
 use std::mem;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -323,4 +324,111 @@ fn async_receiver_has_message() {
     assert!(!receiver.has_message());
     assert!(sender.send(19i128).is_ok());
     assert!(receiver.has_message());
+}
+
+#[test]
+fn concurrent_send_and_try_recv_to_completion() {
+    let (sender, receiver) = oneshot::channel::<i32>();
+
+    let receiver_thread = spawn_named("receiver", move || {
+        loop {
+            match receiver.try_recv() {
+                Ok(999) => break,
+                Ok(value) => panic!("unexpected value: {value}"),
+                Err(TryRecvError::Empty) => spin_loop(),
+                Err(TryRecvError::Disconnected) => panic!("unexpected disconnect"),
+            }
+        }
+    });
+
+    let sender_thread = spawn_named("sender", move || {
+        sender.send(999).unwrap();
+    });
+
+    receiver_thread.join().unwrap();
+    sender_thread.join().unwrap();
+}
+
+#[test]
+fn concurrent_drop_sender_and_try_recv_to_completion() {
+    let (sender, receiver) = oneshot::channel::<i32>();
+
+    let receiver_thread = spawn_named("receiver", move || {
+        loop {
+            match receiver.try_recv() {
+                Ok(value) => panic!("unexpected value: {value}"),
+                Err(TryRecvError::Empty) => spin_loop(),
+                Err(TryRecvError::Disconnected) => break,
+            }
+        }
+    });
+
+    let sender_thread = spawn_named("sender", move || {
+        drop(sender);
+    });
+
+    receiver_thread.join().unwrap();
+    sender_thread.join().unwrap();
+}
+
+#[test]
+fn concurrent_send_and_poll_to_completion() {
+    let (sender, receiver) = oneshot::channel::<i32>();
+
+    let receiver_thread = spawn_named("receiver", move || {
+        let mut receiver = receiver.into_future();
+        let (waker, _waker_handle) = waker();
+        let mut context = Context::from_waker(&waker);
+
+        loop {
+            match Pin::new(&mut receiver).poll(&mut context) {
+                Poll::Ready(Ok(999)) => break,
+                Poll::Ready(result) => panic!("unexpected result: {result:?}"),
+                Poll::Pending => spin_loop(),
+            }
+        }
+    });
+
+    let sender_thread = spawn_named("sender", move || {
+        sender.send(999).unwrap();
+    });
+
+    receiver_thread.join().unwrap();
+    sender_thread.join().unwrap();
+}
+
+#[test]
+fn concurrent_drop_sender_and_poll_to_completion() {
+    let (sender, receiver) = oneshot::channel::<i32>();
+
+    let receiver_thread = spawn_named("receiver", move || {
+        let mut receiver = receiver.into_future();
+        let (waker, _waker_handle) = waker();
+        let mut context = Context::from_waker(&waker);
+
+        loop {
+            match Pin::new(&mut receiver).poll(&mut context) {
+                Poll::Ready(Err(oneshot::RecvError::Disconnected)) => break,
+                Poll::Ready(result) => panic!("unexpected result: {result:?}"),
+                Poll::Pending => spin_loop(),
+            }
+        }
+    });
+
+    let sender_thread = spawn_named("sender", move || {
+        drop(sender);
+    });
+
+    receiver_thread.join().unwrap();
+    sender_thread.join().unwrap();
+}
+
+fn spawn_named<F>(name: &str, f: F) -> std::thread::JoinHandle<()>
+where
+    F: FnOnce() + Send + 'static,
+{
+    std::thread::Builder::new()
+        .name(name.to_string())
+        .spawn(f)
+        .unwrap()
 }
