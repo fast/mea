@@ -27,6 +27,7 @@ use std::task::RawWaker;
 use std::task::RawWakerVTable;
 use std::task::Waker;
 use std::time::Duration;
+use std::time::Instant;
 
 use crate::oneshot;
 use crate::oneshot::TryRecvError;
@@ -287,6 +288,59 @@ fn poll_with_different_wakers() {
 }
 
 #[test]
+fn poll_with_different_wakers_across_threads() {
+    let (sender, receiver) = oneshot::channel::<u128>();
+    let mut receiver = receiver.into_future();
+
+    let (waker1, waker_handle1) = waker();
+    let mut context1 = Context::from_waker(&waker1);
+
+    assert_eq!(Pin::new(&mut receiver).poll(&mut context1), Poll::Pending);
+    assert_eq!(waker_handle1.clone_count(), 1);
+    assert_eq!(waker_handle1.drop_count(), 0);
+    assert_eq!(waker_handle1.wake_count(), 0);
+
+    let receiver_thread = spawn_named("receiver", move || {
+        let (waker2, waker_handle2) = waker();
+        let mut context2 = Context::from_waker(&waker2);
+
+        assert_eq!(Pin::new(&mut receiver).poll(&mut context2), Poll::Pending);
+        assert_eq!(waker_handle2.clone_count(), 1);
+        assert_eq!(waker_handle2.drop_count(), 0);
+        assert_eq!(waker_handle2.wake_count(), 0);
+
+        drop(receiver);
+        assert_eq!(waker_handle2.drop_count(), 1);
+    });
+
+    receiver_thread.join().unwrap();
+    assert_eq!(waker_handle1.drop_count(), 1);
+    assert!(sender.is_closed());
+}
+
+#[test]
+fn drop_pending_receiver_closes_channel_and_drops_waker() {
+    let (sender, receiver) = oneshot::channel::<u128>();
+    let mut receiver = receiver.into_future();
+
+    let (waker, waker_handle) = waker();
+    let mut context = Context::from_waker(&waker);
+
+    assert_eq!(Pin::new(&mut receiver).poll(&mut context), Poll::Pending);
+    assert_eq!(waker_handle.clone_count(), 1);
+    assert_eq!(waker_handle.drop_count(), 0);
+    assert_eq!(waker_handle.wake_count(), 0);
+
+    drop(receiver);
+    assert_eq!(waker_handle.drop_count(), 1);
+    assert_eq!(waker_handle.wake_count(), 0);
+    assert!(sender.is_closed());
+
+    let error = sender.send(1234).unwrap_err();
+    assert_eq!(*error.as_inner(), 1234);
+}
+
+#[test]
 fn poll_then_drop_receiver_during_send() {
     let (sender, receiver) = oneshot::channel::<u128>();
     let mut receiver = receiver.into_future();
@@ -331,14 +385,12 @@ fn concurrent_send_and_try_recv_to_completion() {
     let (sender, receiver) = oneshot::channel::<i32>();
 
     let receiver_thread = spawn_named("receiver", move || {
-        loop {
-            match receiver.try_recv() {
-                Ok(999) => break,
-                Ok(value) => panic!("unexpected value: {value}"),
-                Err(TryRecvError::Empty) => spin_loop(),
-                Err(TryRecvError::Disconnected) => panic!("unexpected disconnect"),
-            }
-        }
+        spin_until("message from sender", || match receiver.try_recv() {
+            Ok(999) => Some(()),
+            Ok(value) => panic!("unexpected value: {value}"),
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => panic!("unexpected disconnect"),
+        });
     });
 
     let sender_thread = spawn_named("sender", move || {
@@ -354,13 +406,11 @@ fn concurrent_drop_sender_and_try_recv_to_completion() {
     let (sender, receiver) = oneshot::channel::<i32>();
 
     let receiver_thread = spawn_named("receiver", move || {
-        loop {
-            match receiver.try_recv() {
-                Ok(value) => panic!("unexpected value: {value}"),
-                Err(TryRecvError::Empty) => spin_loop(),
-                Err(TryRecvError::Disconnected) => break,
-            }
-        }
+        spin_until("sender disconnect", || match receiver.try_recv() {
+            Ok(value) => panic!("unexpected value: {value}"),
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => Some(()),
+        });
     });
 
     let sender_thread = spawn_named("sender", move || {
@@ -380,13 +430,13 @@ fn concurrent_send_and_poll_to_completion() {
         let (waker, _waker_handle) = waker();
         let mut context = Context::from_waker(&waker);
 
-        loop {
+        spin_until("poll ready with message", || {
             match Pin::new(&mut receiver).poll(&mut context) {
-                Poll::Ready(Ok(999)) => break,
+                Poll::Ready(Ok(999)) => Some(()),
                 Poll::Ready(result) => panic!("unexpected result: {result:?}"),
-                Poll::Pending => spin_loop(),
+                Poll::Pending => None,
             }
-        }
+        });
     });
 
     let sender_thread = spawn_named("sender", move || {
@@ -406,13 +456,13 @@ fn concurrent_drop_sender_and_poll_to_completion() {
         let (waker, _waker_handle) = waker();
         let mut context = Context::from_waker(&waker);
 
-        loop {
+        spin_until("poll ready with disconnect", || {
             match Pin::new(&mut receiver).poll(&mut context) {
-                Poll::Ready(Err(oneshot::RecvError::Disconnected)) => break,
+                Poll::Ready(Err(oneshot::RecvError::Disconnected)) => Some(()),
                 Poll::Ready(result) => panic!("unexpected result: {result:?}"),
-                Poll::Pending => spin_loop(),
+                Poll::Pending => None,
             }
-        }
+        });
     });
 
     let sender_thread = spawn_named("sender", move || {
@@ -431,4 +481,28 @@ where
         .name(name.to_string())
         .spawn(f)
         .unwrap()
+}
+
+fn spin_until<F>(label: &str, mut f: F)
+where
+    F: FnMut() -> Option<()>,
+{
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut spins = 0usize;
+
+    loop {
+        if f().is_some() {
+            break;
+        }
+
+        assert!(Instant::now() < deadline, "timed out waiting for {label}");
+
+        if spins % 64 == 0 {
+            std::thread::yield_now();
+        } else {
+            spin_loop();
+        }
+
+        spins += 1;
+    }
 }
