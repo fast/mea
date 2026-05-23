@@ -424,8 +424,8 @@ fn recv_awaken<T>(channel: &Channel<T>) -> Poll<Result<T, RecvError>> {
             AWAKING => {}
             DISCONNECTED => break Poll::Ready(Err(RecvError::Disconnected)),
             MESSAGE => {
-                // ORDERING: the sender has been dropped, so this update only
-                // needs to be visible to us.
+                // ORDERING: after publishing MESSAGE, the sender no longer uses the channel, so
+                // this state update only needs to be visible to this receiver.
                 channel.state.store(DISCONNECTED, Ordering::Relaxed);
 
                 // ORDERING: Synchronize with the sender's write of the message and final state.
@@ -460,8 +460,8 @@ impl<T> Future for Recv<T> {
             }
             // The sender sent the message.
             MESSAGE => {
-                // ORDERING: the sender has been dropped so this update only needs to be
-                // visible to us.
+                // ORDERING: after publishing MESSAGE, the sender no longer uses the channel, so
+                // this state update only needs to be visible to this receiver.
                 channel.state.store(DISCONNECTED, Ordering::Relaxed);
 
                 // ORDERING: Synchronize with the sender's write of the message and final state.
@@ -481,10 +481,7 @@ impl<T> Future for Recv<T> {
                     Ordering::Acquire,
                     Ordering::Relaxed,
                 ) {
-                    // We successfully changed the state back to EMPTY.
-                    //
-                    // This is the most likely branch to be taken, which is why we do not use any
-                    // memory barriers in the compare_exchange above.
+                    // The state is EMPTY again.
                     Ok(_) => {
                         let waker = cx.waker().clone();
 
@@ -501,8 +498,8 @@ impl<T> Future for Recv<T> {
                     // We take the message and mark the channel disconnected.
                     // The sender has already taken the waker.
                     Err(MESSAGE) => {
-                        // ORDERING: the sender has been dropped so this update only needs to be
-                        // visible to us.
+                        // ORDERING: after publishing MESSAGE, the sender no longer uses the
+                        // channel, so this state update only needs to be visible to this receiver.
                         channel.state.store(DISCONNECTED, Ordering::Relaxed);
 
                         // ORDERING: Synchronize with the sender's write of the message.
@@ -566,6 +563,13 @@ impl<T> Drop for Recv<T> {
                 // This receiver was previously polled, but was not polled to completion. Move away
                 // from RECEIVING before dropping the waker so the sender cannot take the same
                 // waker.
+                //
+                // A successful exchange creates a short EMPTY window before the next iteration can
+                // mark DISCONNECTED. This branch owns and drops the stored waker first. A sender
+                // that observes EMPTY does not touch the waker. It either stores MESSAGE and
+                // leaves the message and allocation to this loop, or stores DISCONNECTED and
+                // leaves the allocation to this loop. If this loop marks DISCONNECTED first, the
+                // sender observes DISCONNECTED and owns any send error cleanup.
                 RECEIVING => {
                     if channel
                         .state
