@@ -85,8 +85,8 @@ impl<T> Clone for BoundedSender<T> {
 }
 
 impl<T> fmt::Debug for BoundedSender<T> {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.debug_struct("BoundedSender").finish_non_exhaustive()
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BoundedSender").finish_non_exhaustive()
     }
 }
 
@@ -227,8 +227,8 @@ pub struct BoundedReceiver<T> {
 unsafe impl<T: Send> Sync for BoundedReceiver<T> {}
 
 impl<T> fmt::Debug for BoundedReceiver<T> {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.debug_struct("BoundedReceiver").finish_non_exhaustive()
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BoundedReceiver").finish_non_exhaustive()
     }
 }
 

@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::any::type_name;
 use std::fmt;
 
 /// An error returned when trying to send on a closed channel.
@@ -49,13 +50,13 @@ impl<T> SendError<T> {
 
 impl<T> fmt::Display for SendError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        "sending on a closed channel".fmt(f)
+        f.write_str("sending on a closed channel")
     }
 }
 
 impl<T> fmt::Debug for SendError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "SendError<{}>(..)", stringify!(T))
+        write!(f, "SendError<{}>(..)", type_name::<T>())
     }
 }
 
@@ -88,21 +89,20 @@ impl<T> TrySendError<T> {
 }
 
 impl<T> fmt::Display for TrySendError<T> {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            TrySendError::Full(_) => "sending on a full channel".fmt(fmt),
-            TrySendError::Disconnected(_) => "sending on a closed channel".fmt(fmt),
-        }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            TrySendError::Full(_) => "sending on a full channel",
+            TrySendError::Disconnected(_) => "sending on a closed channel",
+        })
     }
 }
 
 impl<T> fmt::Debug for TrySendError<T> {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let ty = type_name::<T>();
         match self {
-            TrySendError::Full(_) => write!(fmt, "TrySendError<{}>::Full(..)", stringify!(T)),
-            TrySendError::Disconnected(_) => {
-                write!(fmt, "TrySendError<{}>::Disconnected(..)", stringify!(T))
-            }
+            TrySendError::Full(_) => write!(f, "TrySendError<{ty}>::Full(..)"),
+            TrySendError::Disconnected(_) => write!(f, "TrySendError<{ty}>::Disconnected(..)"),
         }
     }
 }
@@ -117,8 +117,8 @@ pub enum RecvError {
 }
 
 impl fmt::Display for RecvError {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        "receiving on a closed channel".fmt(fmt)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("receiving on a closed channel")
     }
 }
 
@@ -135,11 +135,11 @@ pub enum TryRecvError {
 }
 
 impl fmt::Display for TryRecvError {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            TryRecvError::Empty => "receiving on an empty channel".fmt(fmt),
-            TryRecvError::Disconnected => "receiving on a closed channel".fmt(fmt),
-        }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            TryRecvError::Empty => "receiving on an empty channel",
+            TryRecvError::Disconnected => "receiving on a closed channel",
+        })
     }
 }
 

@@ -72,6 +72,7 @@
 //! # }
 //! ```
 
+use std::any::type_name;
 use std::cell::UnsafeCell;
 use std::fmt;
 use std::future::Future;
@@ -418,7 +419,7 @@ fn recv_awaken<T>(channel: &Channel<T>) -> Poll<Result<T, RecvError>> {
         hint::spin_loop();
 
         // ORDERING: The MESSAGE branch below uses a dedicated fence to synchronize with the
-        // sender. Until then we only need to observe the state change.
+        // sender. Until then, we only need to observe the state change.
         match channel.state.load(Ordering::Relaxed) {
             AWAKING => {}
             DISCONNECTED => break Poll::Ready(Err(RecvError::Disconnected)),
@@ -784,13 +785,13 @@ impl<T> Drop for SendError<T> {
 
 impl<T> fmt::Display for SendError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        "sending on a closed channel".fmt(f)
+        f.write_str("sending on a closed channel")
     }
 }
 
 impl<T> fmt::Debug for SendError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "SendError<{}>(..)", core::any::type_name::<T>())
+        write!(f, "SendError<{}>(..)", type_name::<T>())
     }
 }
 
@@ -808,10 +809,10 @@ pub enum TryRecvError {
 
 impl fmt::Display for TryRecvError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            TryRecvError::Empty => write!(f, "receiving on an empty channel"),
-            TryRecvError::Disconnected => write!(f, "receiving on a closed channel"),
-        }
+        f.write_str(match self {
+            TryRecvError::Empty => "receiving on an empty channel",
+            TryRecvError::Disconnected => "receiving on a closed channel",
+        })
     }
 }
 
@@ -830,7 +831,7 @@ pub enum RecvError {
 
 impl fmt::Display for RecvError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "receiving on a closed channel")
+        f.write_str("receiving on a closed channel")
     }
 }
 
