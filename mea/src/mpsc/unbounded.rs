@@ -79,8 +79,8 @@ impl<T> Clone for UnboundedSender<T> {
 }
 
 impl<T> fmt::Debug for UnboundedSender<T> {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.debug_struct("UnboundedSender").finish_non_exhaustive()
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UnboundedSender").finish_non_exhaustive()
     }
 }
 
@@ -139,9 +139,8 @@ pub struct UnboundedReceiver<T> {
 unsafe impl<T: Send> Sync for UnboundedReceiver<T> {}
 
 impl<T> fmt::Debug for UnboundedReceiver<T> {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.debug_struct("UnboundedReceiver")
-            .finish_non_exhaustive()
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UnboundedReceiver").finish_non_exhaustive()
     }
 }
 
