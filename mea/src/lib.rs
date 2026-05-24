@@ -47,14 +47,14 @@
 //! # Runtime Agnostic
 //!
 //! All synchronization primitives in this library are runtime-agnostic, meaning they can be used
-//! with any async runtime like Tokio, async-std, or others. This makes the library highly versatile
+//! with any async runtime like tokio, async-std, or others. This makes the library highly versatile
 //! and portable.
 //!
 //! # Thread Safety
 //!
-//! All types in this library implement `Send` and `Sync`, making them safe to share across thread
-//! boundaries. This is essential for concurrent programming where data needs to be accessed from
-//! multiple threads.
+//! All primitive types in this library implement `Send` and `Sync`, making them safe to share
+//! across thread boundaries. This is essential for concurrent programming where data needs to be
+//! accessed from multiple threads.
 //!
 //! [`Barrier`]: barrier::Barrier
 //! [`Condvar`]: condvar::Condvar

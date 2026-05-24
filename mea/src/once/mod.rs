@@ -20,6 +20,7 @@
 //!   when called concurrently.
 //! * [`OnceCell`]: A cell that can be written to at most once, storing a value produced
 //!   asynchronously.
+//! * [`OnceMap`]: A hash map that runs computation only once for each key and stores the result.
 
 #[allow(clippy::module_inception)]
 mod once;
