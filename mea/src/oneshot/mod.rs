@@ -126,11 +126,11 @@ fn sender_wake_up_receiver<T>(channel: &Channel<T>, state: u8) {
     // relationship with the writing of the waker.
     let waker = unsafe { channel.take_waker() };
 
-    // ORDERING: this ordering serves two-fold: it synchronizes with the acquire load
-    // in the receiving thread, ensuring that both our read of the waker and write of
-    // the message happen-before the taking of the message and freeing of the channel.
-    // Furthermore, we need acquire ordering to ensure awaking the receiver
-    // happens after the channel state is updated.
+    // ORDERING: this ordering serves two-fold: it synchronizes with the receiver's
+    // acquire fence after it observes this state, ensuring that both our read of the
+    // waker and write of the message happen-before the taking of the message and
+    // freeing of the channel. Furthermore, we need acquire ordering to ensure awaking
+    // the receiver happens after the channel state is updated.
     channel.state.swap(state, Ordering::AcqRel);
 
     // Note: it is possible that between the store above and this statement that
