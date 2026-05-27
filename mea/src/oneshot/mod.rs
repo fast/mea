@@ -15,7 +15,7 @@
 // This implementation is derived from the `oneshot` crate [1], with significant simplifications
 // since mea needs not support synchronized receiving functions.
 //
-// [1] https://github.com/faern/oneshot/blob/25274e99/src/lib.rs
+// [1] https://github.com/faern/oneshot/blob/83fd0864/src/lib.rs
 
 //! A one-shot channel is used for sending a single message between
 //! asynchronous tasks. The [`channel`] function is used to create a
