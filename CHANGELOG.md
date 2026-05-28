@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## [0.6.4] - 2026-05-28
+
+### New features
+
+* Implement `shutdown::ShutdownWatch` to wait for the shutdown signal without blocking `ShutdownSend::await_shutdown`.
+
 ## [0.6.3] - 2026-01-21
 
 ### Improvements
