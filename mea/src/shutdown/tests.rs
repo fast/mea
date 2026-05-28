@@ -82,3 +82,26 @@ fn test_is_shutdown_owned_not_capture_self() {
     tx.shutdown();
     pollster::block_on(tx.await_shutdown());
 }
+
+#[test]
+fn test_watch_does_not_block_shutdown() {
+    let (tx, rx) = new_pair();
+    let watch = rx.watch();
+    drop(rx);
+
+    tx.shutdown();
+    assert!(watch.is_shutdown_now());
+    pollster::block_on(tx.await_shutdown());
+}
+
+#[test]
+fn test_watch_is_shutdown() {
+    let (tx, rx) = new_pair();
+    let watch = rx.watch();
+    let handle = test_runtime().spawn(async move { watch.is_shutdown().await });
+    drop(rx);
+
+    tx.shutdown();
+    pollster::block_on(tx.await_shutdown());
+    pollster::block_on(handle).unwrap();
+}
