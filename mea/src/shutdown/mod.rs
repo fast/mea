@@ -19,6 +19,8 @@
 //! * [`ShutdownSend`] can send a shutdown signal, and can wait for all the tasks to finish.
 //! * [`ShutdownRecv`] can wait for the shutdown signal, and should be dropped when the task is
 //!   done, which will notify the sender on all the tasks finished.
+//! * [`ShutdownWatch`] can wait for the shutdown signal without blocking
+//!   [`ShutdownSend::await_shutdown`].
 //!
 //! Internally, the shutdown signal is implemented using a countdown latch, and the task completion
 //! is tracked using a wait group. [`ShutdownSend`] is cloneable, allowing multiple sources to send
@@ -107,6 +109,42 @@ pub struct ShutdownRecv {
 }
 
 impl ShutdownRecv {
+    /// Returns a handle for watching the shutdown signal.
+    ///
+    /// The returned handle does not block [`ShutdownSend::await_shutdown`].
+    pub fn watch(&self) -> ShutdownWatch {
+        ShutdownWatch {
+            latch: self.latch.clone(),
+        }
+    }
+
+    /// Returns whether the shutdown signal has been received.
+    pub fn is_shutdown_now(&self) -> bool {
+        self.latch.try_wait().is_ok()
+    }
+
+    /// Returns a future that resolves when the shutdown signal is received.
+    pub async fn is_shutdown(&self) {
+        self.latch.wait().await;
+    }
+
+    /// Returns an owned future that resolves when the shutdown signal is received.
+    ///
+    /// The returned future has no lifetime constraints.
+    pub fn is_shutdown_owned(&self) -> impl Future<Output = ()> + 'static {
+        self.latch.clone().wait_owned()
+    }
+}
+
+/// A handle for watching shutdown signals without participating in shutdown completion.
+///
+/// See the [module level documentation](self) for more.
+#[derive(Debug, Clone)]
+pub struct ShutdownWatch {
+    latch: Arc<Latch>,
+}
+
+impl ShutdownWatch {
     /// Returns whether the shutdown signal has been received.
     pub fn is_shutdown_now(&self) -> bool {
         self.latch.try_wait().is_ok()
