@@ -173,6 +173,10 @@ mod tests {
         do_assert_send_and_sync::<broadcast::overflow::Receiver<i64>>();
         do_assert_send_and_sync::<broadcast::overflow::RecvError>();
         do_assert_send_and_sync::<broadcast::overflow::TryRecvError>();
+        do_assert_send_and_sync::<broadcast::unbounded::Sender<i64>>();
+        do_assert_send_and_sync::<broadcast::unbounded::Receiver<i64>>();
+        do_assert_send_and_sync::<broadcast::unbounded::RecvError>();
+        do_assert_send_and_sync::<broadcast::unbounded::TryRecvError>();
         do_assert_send_and_sync::<oneshot::SendError<i64>>();
         do_assert_send_and_sync::<oneshot::Sender<i64>>();
         do_assert_send_and_sync::<mpsc::SendError<i64>>();
@@ -213,6 +217,10 @@ mod tests {
         do_assert_unpin::<broadcast::overflow::Receiver<i64>>();
         do_assert_unpin::<broadcast::overflow::RecvError>();
         do_assert_unpin::<broadcast::overflow::TryRecvError>();
+        do_assert_unpin::<broadcast::unbounded::Sender<i64>>();
+        do_assert_unpin::<broadcast::unbounded::Receiver<i64>>();
+        do_assert_unpin::<broadcast::unbounded::RecvError>();
+        do_assert_unpin::<broadcast::unbounded::TryRecvError>();
         do_assert_unpin::<oneshot::Sender<i64>>();
         do_assert_unpin::<oneshot::SendError<i64>>();
         do_assert_unpin::<oneshot::Receiver<i64>>();

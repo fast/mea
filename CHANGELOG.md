@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### New features
+
+* Implement `broadcast::unbounded`, an unbounded broadcast channel that retains messages until all
+  active receivers consume them or are dropped.
+
 ### Bug fixes
 
 * Clean up cancelled broadcast receive futures registered through the internal `WaitSet`.
