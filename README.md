@@ -24,6 +24,7 @@ Mea (Make Easy Async) is a runtime-agnostic library providing essential synchron
 
 * [**Barrier**](https://docs.rs/mea/*/mea/barrier/struct.Barrier.html): A synchronization primitive that enables tasks to wait until all participants arrive.
 * [**Condvar**](https://docs.rs/mea/*/mea/condvar/struct.Condvar.html): A condition variable that allows tasks to wait for a notification.
+* [**KeyedFairSemaphore**](https://docs.rs/mea/*/mea/keyed_fair_semaphore/struct.KeyedFairSemaphore.html): A semaphore that schedules waiters fairly across keys.
 * [**Latch**](https://docs.rs/mea/*/mea/latch/struct.Latch.html): A synchronization primitive that allows one or more tasks to wait until a set of operations completes.
 * [**Mutex**](https://docs.rs/mea/*/mea/mutex/struct.Mutex.html): A mutual exclusion primitive for protecting shared data.
 * [**Once**](https://docs.rs/mea/*/mea/once/struct.Once.html): A primitive that ensures a one-time asynchronous operation runs at most once, even when called concurrently.
@@ -72,6 +73,7 @@ This crate collects runtime-agnostic synchronization primitives from spare parts
 
 * **Barrier** is inspired by `std::sync::Barrier` and `tokio::sync::Barrier`, with a different implementation based on the internal `WaitSet` primitive.
 * **Condvar** is inspired by `std::sync::Condvar` and `async_std::sync::Condvar`, with a different implementation based on the internal `Semaphore` primitive. Different from the async_std implementation, this condvar is fair.
+* **KeyedFairSemaphore** is written from scratch to bound global concurrency while balancing released permits across keys by their current in-flight counts.
 * **Latch** is inspired by [`latches`](https://github.com/mirromutth/latches), with a different implementation based on the internal `CountdownState` primitive. No `wait` or `watch` method is provided, since it can be easily implemented by [composing delay futures](https://docs.rs/fastimer/*/fastimer/fn.timeout.html). No sync variant is provided, since it can be easily implemented with block_on of any runtime.
 * **Mutex** is derived from `tokio::sync::Mutex`. No blocking method is provided, since it can be easily implemented with block_on of any runtime.
 * **OnceCell** is derived from `tokio::sync::OnceCell`, but using our own semaphore implementation.

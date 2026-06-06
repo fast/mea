@@ -24,6 +24,7 @@
 //! * [`Barrier`]: A synchronization point where multiple tasks can wait until all participants
 //!   arrive
 //! * [`Condvar`]: A condition variable that allows tasks to wait for a notification
+//! * [`KeyedFairSemaphore`]: A semaphore that schedules waiters fairly across keys
 //! * [`Latch`]: A single-use barrier that allows one or more tasks to wait until a signal is given
 //! * [`Mutex`]: A mutual exclusion primitive for protecting shared data
 //! * [`Once`]: A primitive that ensures a one-time asynchronous operation runs at most once, even
@@ -58,6 +59,7 @@
 //!
 //! [`Barrier`]: barrier::Barrier
 //! [`Condvar`]: condvar::Condvar
+//! [`KeyedFairSemaphore`]: keyed_fair_semaphore::KeyedFairSemaphore
 //! [`Latch`]: latch::Latch
 //! [`Mutex`]: mutex::Mutex
 //! [`Once`]: once::Once
@@ -76,6 +78,7 @@ pub mod atomicbox;
 pub mod barrier;
 pub mod broadcast;
 pub mod condvar;
+pub mod keyed_fair_semaphore;
 pub mod latch;
 pub mod mpsc;
 pub mod mutex;
@@ -101,6 +104,9 @@ mod tests {
     use crate::barrier::Barrier;
     use crate::broadcast;
     use crate::condvar::Condvar;
+    use crate::keyed_fair_semaphore::KeyedFairSemaphore;
+    use crate::keyed_fair_semaphore::KeyedFairSemaphorePermit;
+    use crate::keyed_fair_semaphore::OwnedKeyedFairSemaphorePermit;
     use crate::latch::Latch;
     use crate::mpsc;
     use crate::mutex::Mutex;
@@ -125,6 +131,9 @@ mod tests {
         fn do_assert_send_and_sync<T: Send + Sync>() {}
         do_assert_send_and_sync::<Barrier>();
         do_assert_send_and_sync::<Condvar>();
+        do_assert_send_and_sync::<KeyedFairSemaphore<String>>();
+        do_assert_send_and_sync::<KeyedFairSemaphorePermit<'_, String>>();
+        do_assert_send_and_sync::<OwnedKeyedFairSemaphorePermit<String>>();
         do_assert_send_and_sync::<Once>();
         do_assert_send_and_sync::<OnceCell<u32>>();
         do_assert_send_and_sync::<OnceMap<String, u32>>();
@@ -165,6 +174,9 @@ mod tests {
         fn do_assert_unpin<T: Unpin>() {}
         do_assert_unpin::<Barrier>();
         do_assert_unpin::<Condvar>();
+        do_assert_unpin::<KeyedFairSemaphore<String>>();
+        do_assert_unpin::<KeyedFairSemaphorePermit<'_, String>>();
+        do_assert_unpin::<OwnedKeyedFairSemaphorePermit<String>>();
         do_assert_unpin::<Latch>();
         do_assert_unpin::<Once>();
         do_assert_unpin::<OnceCell<u32>>();
