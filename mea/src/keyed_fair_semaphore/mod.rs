@@ -443,11 +443,11 @@ where
         let mut wakers = Vec::new();
         {
             let mut state = self.semaphore.state.lock();
-            if let Some(waiter) = state.remove_waiter(waiter_id)
-                && waiter.granted
-            {
-                state.release(&waiter.key);
-                state.grant_waiters(&mut wakers);
+            if let Some(waiter) = state.remove_waiter(waiter_id) {
+                if waiter.granted {
+                    state.release(&waiter.key);
+                    state.grant_waiters(&mut wakers);
+                }
             }
         }
         wake_all(wakers);
