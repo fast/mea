@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Bug fixes
+
+* Clean up cancelled broadcast receive futures registered through the internal `WaitSet`.
+
 ## [0.6.3] - 2026-01-21
 
 ### Improvements

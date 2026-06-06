@@ -59,6 +59,7 @@ use std::task::Context;
 use std::task::Poll;
 
 use crate::internal::CountdownState;
+use crate::internal::WaiterId;
 
 #[cfg(test)]
 mod tests;
@@ -145,7 +146,7 @@ impl IntoFuture for WaitGroup {
 /// will complete when the WaitGroup counter reaches zero.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Wait {
-    idx: Option<usize>,
+    idx: Option<WaiterId>,
     state: Arc<CountdownState>,
 }
 

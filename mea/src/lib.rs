@@ -96,6 +96,38 @@ fn test_runtime() -> &'static tokio::runtime::Runtime {
 }
 
 #[cfg(test)]
+use std::sync::Arc;
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
+#[cfg(test)]
+use std::sync::atomic::Ordering;
+#[cfg(test)]
+use std::task::Wake;
+#[cfg(test)]
+use std::task::Waker;
+
+#[cfg(test)]
+struct CountWake(Arc<AtomicUsize>);
+
+#[cfg(test)]
+impl Wake for CountWake {
+    fn wake(self: Arc<Self>) {
+        self.0.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+fn count_waker() -> (Waker, Arc<AtomicUsize>) {
+    let wake_count = Arc::new(AtomicUsize::new(0));
+    let waker = Waker::from(Arc::new(CountWake(wake_count.clone())));
+    (waker, wake_count)
+}
+
+#[cfg(test)]
 mod tests {
     use crate::barrier::Barrier;
     use crate::broadcast;

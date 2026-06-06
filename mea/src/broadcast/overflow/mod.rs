@@ -73,6 +73,7 @@ use std::task::Poll;
 use crate::internal::Mutex;
 use crate::internal::RwLock;
 use crate::internal::WaitSet;
+use crate::internal::WaiterId;
 
 #[cfg(test)]
 mod tests;
@@ -218,7 +219,13 @@ impl<T> Drop for Sender<T> {
             1 => {
                 // If this is the last sender, we need to wake up the receiver so it can
                 // observe the disconnected state.
-                self.shared.waiters.lock().wake_all();
+                let wakers = {
+                    let mut waiters = self.shared.waiters.lock();
+                    waiters.take_wakers()
+                };
+                for waker in wakers {
+                    waker.wake();
+                }
             }
             _ => {
                 // there are still other senders left, do nothing
@@ -254,7 +261,13 @@ impl<T> Sender<T> {
         }
 
         // Notify all waiting receivers.
-        self.shared.waiters.lock().wake_all();
+        let wakers = {
+            let mut waiters = self.shared.waiters.lock();
+            waiters.take_wakers()
+        };
+        for waker in wakers {
+            waker.wake();
+        }
     }
 
     /// Creates a new receiver that starts receiving messages from the current tail of the channel.
@@ -435,7 +448,22 @@ impl<T> Receiver<T> {
 
 struct Recv<'a, T> {
     receiver: &'a mut Receiver<T>,
-    index: Option<usize>,
+    index: Option<WaiterId>,
+}
+
+impl<T> Drop for Recv<'_, T> {
+    fn drop(&mut self) {
+        // Ready paths clear the waiter ID, so only a cancelled pending receive takes this lock.
+        if self.index.is_none() {
+            return;
+        }
+
+        let waker = {
+            let mut waiters = self.receiver.shared.waiters.lock();
+            waiters.remove_waker(&mut self.index)
+        };
+        drop(waker);
+    }
 }
 
 impl<T: Clone> Future for Recv<'_, T> {
@@ -446,9 +474,16 @@ impl<T: Clone> Future for Recv<'_, T> {
 
         loop {
             match receiver.try_recv() {
-                Ok(val) => return Poll::Ready(Ok(val)),
-                Err(TryRecvError::Lagged(n)) => return Poll::Ready(Err(RecvError::Lagged(n))),
+                Ok(val) => {
+                    *index = None;
+                    return Poll::Ready(Ok(val));
+                }
+                Err(TryRecvError::Lagged(n)) => {
+                    *index = None;
+                    return Poll::Ready(Err(RecvError::Lagged(n)));
+                }
                 Err(TryRecvError::Disconnected) => {
+                    *index = None;
                     return Poll::Ready(Err(RecvError::Disconnected));
                 }
                 Err(TryRecvError::Empty) => {}
@@ -468,11 +503,14 @@ impl<T: Clone> Future for Recv<'_, T> {
             // Check for Closed
             // Use Acquire to ensure we see all writes before the sender dropped.
             if shared.senders.load(Ordering::Acquire) == 0 {
+                *index = None;
                 return Poll::Ready(Err(RecvError::Disconnected));
             }
 
             // Register Waker
-            waiters.register_waker(index, cx);
+            let waker = waiters.register_waker(index, cx);
+            drop(waiters);
+            drop(waker);
             return Poll::Pending;
         }
     }

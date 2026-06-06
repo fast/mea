@@ -75,6 +75,7 @@ use std::task::Poll;
 
 use crate::internal::Mutex;
 use crate::internal::WaitSet;
+use crate::internal::WaiterId;
 
 #[cfg(test)]
 mod tests;
@@ -228,7 +229,11 @@ impl Barrier {
             if state.arrived == self.n {
                 state.arrived = 0;
                 state.generation += 1;
-                state.waiters.wake_all();
+                let wakers = state.waiters.take_wakers();
+                drop(state);
+                for waker in wakers {
+                    waker.wake();
+                }
                 return BarrierWaitResult(true);
             }
 
@@ -250,7 +255,7 @@ impl Barrier {
 /// This future will complete when all tasks have reached the barrier point.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 struct BarrierWait<'a> {
-    idx: Option<usize>,
+    idx: Option<WaiterId>,
     generation: usize,
     barrier: &'a Barrier,
 }
@@ -277,7 +282,9 @@ impl Future for BarrierWait<'_> {
         if *generation < state.generation {
             Poll::Ready(())
         } else {
-            state.waiters.register_waker(idx, cx);
+            let waker = state.waiters.register_waker(idx, cx);
+            drop(state);
+            drop(waker);
             Poll::Pending
         }
     }

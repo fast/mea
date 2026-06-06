@@ -18,6 +18,7 @@ use std::task::Context;
 
 use crate::internal::Mutex;
 use crate::internal::WaitSet;
+use crate::internal::WaiterId;
 
 #[derive(Debug)]
 pub(crate) struct CountdownState {
@@ -56,17 +57,26 @@ impl CountdownState {
 
     /// Drain and wake up all waiters.
     pub(crate) fn wake_all(&self) {
-        let mut waiters = self.waiters.lock();
-        waiters.wake_all();
+        let wakers = {
+            let mut waiters = self.waiters.lock();
+            waiters.take_wakers()
+        };
+
+        for waker in wakers {
+            waker.wake();
+        }
     }
 
     /// Registers a waker to be woken up when the countdown reaches zero.
     ///
-    /// `idx` must be `None` when the waker is not registered, or `Some(key)` where `key` is
-    /// a value previously returned by this method.
-    pub(crate) fn register_waker(&self, idx: &mut Option<usize>, cx: &mut Context<'_>) {
-        let mut waiters = self.waiters.lock();
-        waiters.register_waker(idx, cx);
+    /// `id` must be `None` when the waker is not registered, or `Some` with a waiter ID previously
+    /// stored by this method.
+    pub(crate) fn register_waker(&self, id: &mut Option<WaiterId>, cx: &mut Context<'_>) {
+        let waker = {
+            let mut waiters = self.waiters.lock();
+            waiters.register_waker(id, cx)
+        };
+        drop(waker);
     }
 
     /// Returns `Ok(())` if the counter is zero, otherwise returns `Err(s)` where `s` is the current

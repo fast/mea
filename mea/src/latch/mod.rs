@@ -60,6 +60,7 @@ use std::task::Context;
 use std::task::Poll;
 
 use crate::internal::CountdownState;
+use crate::internal::WaiterId;
 
 #[cfg(test)]
 mod tests;
@@ -252,7 +253,7 @@ impl Latch {
 }
 
 impl Latch {
-    fn intern_poll(&self, idx: &mut Option<usize>, cx: &mut Context<'_>) -> Poll<()> {
+    fn intern_poll(&self, idx: &mut Option<WaiterId>, cx: &mut Context<'_>) -> Poll<()> {
         // register waker if the counter is not zero
         if self.state.spin_wait(16).is_err() {
             self.state.register_waker(idx, cx);
@@ -271,7 +272,7 @@ impl Latch {
 /// This future will complete when the latch count reaches zero.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct LatchWait<'a> {
-    idx: Option<usize>,
+    idx: Option<WaiterId>,
     latch: &'a Latch,
 }
 
@@ -295,7 +296,7 @@ impl Future for LatchWait<'_> {
 /// This future will complete when the latch count reaches zero.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct OwnedLatchWait {
-    idx: Option<usize>,
+    idx: Option<WaiterId>,
     latch: Arc<Latch>,
 }
 

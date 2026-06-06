@@ -18,6 +18,7 @@ use std::task::Context;
 use std::task::Poll;
 
 use crate::internal::CountdownState;
+use crate::internal::WaiterId;
 use crate::semaphore::Semaphore;
 
 #[cfg(test)]
@@ -215,7 +216,7 @@ impl Once {
 }
 
 struct OnceWait<'a> {
-    idx: Option<usize>,
+    idx: Option<WaiterId>,
     once: &'a Once,
 }
 

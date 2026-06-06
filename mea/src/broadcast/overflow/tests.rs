@@ -12,7 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::future::Future;
+use std::sync::atomic::Ordering;
+use std::task::Context;
+
 use super::*;
+use crate::count_waker;
 
 #[tokio::test]
 async fn test_broadcast_basic() {
@@ -75,6 +80,22 @@ async fn test_wait_mechanism() {
     tx.send(42);
 
     assert_eq!(handle.await.unwrap(), Ok(42));
+}
+
+#[tokio::test]
+async fn test_recv_cancellation_removes_waiter() {
+    let (tx, mut rx) = channel::<i32>(10);
+    let (waker, wake_count) = count_waker();
+    let mut cx = Context::from_waker(&waker);
+    let mut recv = Box::pin(rx.recv());
+
+    assert!(recv.as_mut().poll(&mut cx).is_pending());
+
+    drop(recv);
+    tx.send(1);
+
+    assert_eq!(wake_count.load(Ordering::Relaxed), 0);
+    assert_eq!(rx.try_recv(), Ok(1));
 }
 
 #[tokio::test]
