@@ -1,4 +1,4 @@
-# Make Easy Async (Mea)
+# MEA (Make Easy Async)
 
 [![Crates.io][crates-badge]][crates-url]
 [![Documentation][docs-badge]][docs-url]
@@ -18,7 +18,7 @@
 
 ## Overview
 
-Mea (Make Easy Async) is a runtime-agnostic library providing essential synchronization primitives for asynchronous Rust programming. The library offers a collection of well-tested, efficient synchronization tools that work with any async runtime.
+MEA is a runtime-agnostic library providing essential synchronization primitives for asynchronous Rust programming. The library offers a collection of well-tested, efficient synchronization tools that work with any async runtime.
 
 ## Features
 
@@ -60,7 +60,7 @@ All types in this library implement `Send` and `Sync`, making them safe to share
 
 This crate is built against the latest stable release, and its minimum supported rustc version is 1.85.0.
 
-The policy is that the minimum Rust version required to use this crate can be increased in minor version updates. For example, if Mea 1.0 requires Rust 1.20.0, then Mea 1.0.z for all values of z will also require Rust 1.20.0 or newer. However, Mea 1.y for y > 0 may require a newer minimum version of Rust.
+The policy is that the minimum Rust version required to use this crate can be increased in minor version updates. For example, if MEA 1.0 requires Rust 1.20.0, then MEA 1.0.z for all values of z will also require Rust 1.20.0 or newer. However, Mea 1.y for y > 0 may require a newer minimum version of Rust.
 
 ## License
 
