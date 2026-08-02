@@ -12,21 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
-use std::collections::VecDeque;
-use std::future::Future;
 use std::hash::BuildHasher;
 use std::hash::Hash;
 use std::hash::RandomState;
-use std::pin::Pin;
 use std::sync::Arc;
-use std::task::Context;
-use std::task::Poll;
-use std::task::Waker;
 
-use slab::Slab;
-
-use crate::internal::Mutex;
+use super::share::Share;
 
 /// An admission controller that fairly shares a fixed number of permits across keys.
 ///
@@ -42,7 +33,7 @@ where
     K: Eq + Hash,
     S: BuildHasher,
 {
-    state: Mutex<State<K, S>>,
+    share: Share<K, S>,
 }
 
 impl<K> FairShare<K, RandomState>
@@ -82,7 +73,7 @@ where
     pub fn with_hasher(permits: usize, hash_builder: S) -> Self {
         assert!(permits > 0, "FairShare requires at least one permit");
         Self {
-            state: Mutex::new(State::new(permits, hash_builder)),
+            share: Share::new(vec![permits].into_boxed_slice(), hash_builder),
         }
     }
 
@@ -91,7 +82,7 @@ where
     /// A permit already assigned to a queued acquisition counts as held by its
     /// key, even if that acquisition has not yet been polled again.
     pub fn available_permits(&self) -> usize {
-        self.state.lock().available_permits
+        self.share.available_permits()
     }
 
     /// Returns the number of acquisitions currently waiting for a permit.
@@ -99,7 +90,7 @@ where
     /// An acquisition is no longer counted once it has been assigned a permit,
     /// even if its future has not yet been polled again.
     pub fn num_waiters(&self) -> usize {
-        self.state.lock().num_waiters
+        self.share.num_waiters()
     }
 
     /// Attempts to acquire one permit for `key` without waiting.
@@ -107,11 +98,12 @@ where
     /// This method does not bypass queued acquisitions.
     pub fn try_acquire(&self, key: K) -> Option<FairSharePermit<'_, K, S>> {
         let key = Arc::new(key);
-        let admitted = self.state.lock().try_admit(key.clone());
-        admitted.then(|| FairSharePermit {
-            admission: self,
-            key,
-        })
+        self.share
+            .try_acquire(key.clone(), 0)
+            .then(|| FairSharePermit {
+                admission: self,
+                key,
+            })
     }
 
     /// Acquires one permit for `key`.
@@ -123,7 +115,7 @@ where
     /// queued acquisition.
     pub async fn acquire(&self, key: K) -> FairSharePermit<'_, K, S> {
         let key = Arc::new(key);
-        Acquire::new(self, key.clone()).await;
+        self.share.acquire(key.clone(), 0).await;
         FairSharePermit {
             admission: self,
             key,
@@ -136,8 +128,10 @@ where
     /// method.
     pub fn try_acquire_owned(self: Arc<Self>, key: K) -> Option<OwnedFairSharePermit<K, S>> {
         let key = Arc::new(key);
-        let admitted = self.state.lock().try_admit(key.clone());
-        admitted.then(|| OwnedFairSharePermit {
+        if !self.share.try_acquire(key.clone(), 0) {
+            return None;
+        }
+        Some(OwnedFairSharePermit {
             admission: self,
             key,
         })
@@ -153,7 +147,7 @@ where
     /// This method has the same cancellation behavior as [`Self::acquire`].
     pub async fn acquire_owned(self: Arc<Self>, key: K) -> OwnedFairSharePermit<K, S> {
         let key = Arc::new(key);
-        Acquire::new(&self, key.clone()).await;
+        self.share.acquire(key.clone(), 0).await;
         OwnedFairSharePermit {
             admission: self,
             key,
@@ -161,292 +155,7 @@ where
     }
 
     fn release(&self, key: &K) {
-        let mut wakers = Vec::new();
-        {
-            let mut state = self.state.lock();
-            state.release(key);
-            state.admit_waiters(&mut wakers);
-        }
-        wake_all(wakers);
-    }
-}
-
-#[derive(Debug)]
-struct State<K, S>
-where
-    K: Eq + Hash,
-    S: BuildHasher,
-{
-    total_permits: usize,
-    available_permits: usize,
-    num_waiters: usize,
-    next_sequence: u64,
-    groups: HashMap<Arc<K>, GroupState, S>,
-    waiters: Slab<Waiter>,
-}
-
-impl<K, S> State<K, S>
-where
-    K: Eq + Hash,
-    S: BuildHasher,
-{
-    fn new(permits: usize, hash_builder: S) -> Self {
-        Self {
-            total_permits: permits,
-            available_permits: permits,
-            num_waiters: 0,
-            next_sequence: 0,
-            groups: HashMap::with_hasher(hash_builder),
-            waiters: Slab::new(),
-        }
-    }
-
-    fn try_admit(&mut self, key: Arc<K>) -> bool {
-        if self.available_permits == 0 || self.num_waiters != 0 {
-            return false;
-        }
-
-        self.available_permits -= 1;
-        self.groups.entry(key).or_default().held_permits += 1;
-        true
-    }
-
-    fn enqueue(&mut self, key: Arc<K>, waker: &Waker) -> usize {
-        let sequence = self.next_sequence;
-        self.next_sequence += 1;
-
-        let waiter = self.waiters.insert(Waiter {
-            sequence,
-            waker: Some(waker.clone()),
-            admitted: false,
-        });
-        self.groups.entry(key).or_default().queue.push_back(waiter);
-        self.num_waiters += 1;
-        waiter
-    }
-
-    fn poll_waiter(&mut self, waiter: usize, waker: &Waker) -> Poll<()> {
-        let state = self
-            .waiters
-            .get_mut(waiter)
-            .expect("FairShare waiter is missing");
-
-        if state.admitted {
-            self.waiters.remove(waiter);
-            Poll::Ready(())
-        } else {
-            if state
-                .waker
-                .as_ref()
-                .is_none_or(|current| !current.will_wake(waker))
-            {
-                state.waker = Some(waker.clone());
-            }
-            Poll::Pending
-        }
-    }
-
-    fn cancel(&mut self, waiter_id: usize, key: &K) {
-        let waiter = self.waiters.remove(waiter_id);
-        if waiter.admitted {
-            self.release(key);
-            return;
-        }
-
-        let remove_group = {
-            let group = self
-                .groups
-                .get_mut(key)
-                .expect("FairShare waiter group is missing");
-            let position = group
-                .queue
-                .iter()
-                .position(|candidate| *candidate == waiter_id)
-                .expect("FairShare waiter is missing from its group");
-            group.queue.remove(position);
-            group.held_permits == 0 && group.queue.is_empty()
-        };
-
-        self.num_waiters -= 1;
-        if remove_group {
-            self.groups.remove(key);
-        }
-    }
-
-    fn admit_waiters(&mut self, wakers: &mut Vec<Waker>) {
-        while self.available_permits > 0 && self.num_waiters > 0 {
-            let key = self
-                .next_group()
-                .expect("FairShare has pending acquisitions without a group");
-            let waiter = self.groups[&key]
-                .queue
-                .front()
-                .copied()
-                .expect("FairShare pending group has no waiters");
-
-            {
-                let group = self
-                    .groups
-                    .get_mut(&key)
-                    .expect("FairShare pending group is missing");
-                let popped = group.queue.pop_front();
-                debug_assert_eq!(popped, Some(waiter));
-                group.held_permits += 1;
-            }
-
-            self.available_permits -= 1;
-            self.num_waiters -= 1;
-
-            let waiter = &mut self.waiters[waiter];
-            waiter.admitted = true;
-            if let Some(waker) = waiter.waker.take() {
-                wakers.push(waker);
-            }
-        }
-    }
-
-    fn next_group(&self) -> Option<Arc<K>> {
-        self.groups
-            .iter()
-            .filter_map(|(key, group)| {
-                let waiter = *group.queue.front()?;
-                let sequence = self.waiters[waiter].sequence;
-                Some((group.held_permits, sequence, key))
-            })
-            .min_by_key(|(held_permits, sequence, _)| (*held_permits, *sequence))
-            .map(|(_, _, key)| key.clone())
-    }
-
-    fn release(&mut self, key: &K) {
-        let remove_group = {
-            let group = self
-                .groups
-                .get_mut(key)
-                .expect("FairShare released a permit for an unknown key");
-            debug_assert!(group.held_permits > 0);
-            group.held_permits -= 1;
-            group.held_permits == 0 && group.queue.is_empty()
-        };
-
-        if remove_group {
-            self.groups.remove(key);
-        }
-
-        self.available_permits += 1;
-        debug_assert!(self.available_permits <= self.total_permits);
-    }
-}
-
-#[derive(Debug, Default)]
-struct GroupState {
-    held_permits: usize,
-    queue: VecDeque<usize>,
-}
-
-#[derive(Debug)]
-struct Waiter {
-    sequence: u64,
-    waker: Option<Waker>,
-    admitted: bool,
-}
-
-#[derive(Debug)]
-struct Acquire<'a, K, S>
-where
-    K: Eq + Hash,
-    S: BuildHasher,
-{
-    admission: &'a FairShare<K, S>,
-    key: Arc<K>,
-    waiter: Option<usize>,
-    completed: bool,
-}
-
-impl<'a, K, S> Acquire<'a, K, S>
-where
-    K: Eq + Hash,
-    S: BuildHasher,
-{
-    fn new(admission: &'a FairShare<K, S>, key: Arc<K>) -> Self {
-        Self {
-            admission,
-            key,
-            waiter: None,
-            completed: false,
-        }
-    }
-}
-
-impl<K, S> Drop for Acquire<'_, K, S>
-where
-    K: Eq + Hash,
-    S: BuildHasher,
-{
-    fn drop(&mut self) {
-        let Some(waiter) = self.waiter.take() else {
-            return;
-        };
-
-        let mut wakers = Vec::new();
-        {
-            let mut state = self.admission.state.lock();
-            state.cancel(waiter, &self.key);
-            state.admit_waiters(&mut wakers);
-        }
-        wake_all(wakers);
-    }
-}
-
-impl<K, S> Future for Acquire<'_, K, S>
-where
-    K: Eq + Hash,
-    S: BuildHasher,
-{
-    type Output = ();
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.get_mut();
-        if this.completed {
-            return Poll::Ready(());
-        }
-
-        if let Some(waiter) = this.waiter {
-            if this
-                .admission
-                .state
-                .lock()
-                .poll_waiter(waiter, cx.waker())
-                .is_ready()
-            {
-                this.waiter = None;
-                this.completed = true;
-                return Poll::Ready(());
-            }
-            return Poll::Pending;
-        }
-
-        let mut wakers = Vec::new();
-        let ready = {
-            let mut state = this.admission.state.lock();
-            if state.try_admit(this.key.clone()) {
-                this.completed = true;
-                return Poll::Ready(());
-            }
-
-            let waiter = state.enqueue(this.key.clone(), cx.waker());
-            this.waiter = Some(waiter);
-            state.admit_waiters(&mut wakers);
-            state.poll_waiter(waiter, cx.waker()).is_ready()
-        };
-        wake_all(wakers);
-
-        if ready {
-            this.waiter = None;
-            this.completed = true;
-            Poll::Ready(())
-        } else {
-            Poll::Pending
-        }
+        self.share.release(key);
     }
 }
 
@@ -528,11 +237,5 @@ where
 {
     fn drop(&mut self) {
         self.admission.release(&self.key);
-    }
-}
-
-fn wake_all(wakers: Vec<Waker>) {
-    for waker in wakers {
-        waker.wake();
     }
 }

@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### New features
+
+* Implement `admission::PriorityShare` to combine shared-capacity priority thresholds with fair sharing among owners at the same priority.
+
 ### Bug fixes
 
 * Prevent `OwnedMappedMutexGuard` from allowing invalid lifetime coercions. ([#121](https://github.com/fast/mea/pull/121))
