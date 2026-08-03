@@ -281,14 +281,15 @@ fn supports_a_custom_hash_builder() {
 #[test]
 fn owned_permit_keeps_the_admission_controller_alive() {
     let admission = Arc::new(FairShare::new(1));
+    let weak = Arc::downgrade(&admission);
     let permit = admission
-        .clone()
         .try_acquire_owned("tenant")
         .expect("a permit should be available");
 
-    drop(admission);
+    assert!(weak.upgrade().is_some());
     assert_eq!(permit.key(), &"tenant");
     drop(permit);
+    assert!(weak.upgrade().is_none());
 }
 
 #[test]

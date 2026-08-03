@@ -125,10 +125,11 @@ where
     /// The admission controller must be wrapped in an [`Arc`] to call this
     /// method.
     pub fn try_acquire_owned(self: Arc<Self>, key: K) -> Option<OwnedFairSharePermit<K, S>> {
-        self.admission
-            .clone()
-            .try_acquire_owned(key)
-            .map(|permit| OwnedFairSharePermit { permit })
+        let permit = self.admission.clone().try_acquire_owned(key)?;
+        Some(OwnedFairSharePermit {
+            permit,
+            _admission: self,
+        })
     }
 
     /// Acquires one owned permit for `key`.
@@ -140,8 +141,10 @@ where
     ///
     /// This method has the same cancellation behavior as [`Self::acquire`].
     pub async fn acquire_owned(self: Arc<Self>, key: K) -> OwnedFairSharePermit<K, S> {
+        let permit = self.admission.clone().acquire_owned(key).await;
         OwnedFairSharePermit {
-            permit: self.admission.clone().acquire_owned(key).await,
+            permit,
+            _admission: self,
         }
     }
 }
@@ -178,9 +181,9 @@ where
 /// An owned permit from a [`FairShare`] admission controller.
 ///
 /// This type is created by the [`acquire_owned`] and [`try_acquire_owned`]
-/// methods on [`FairShare`]. Unlike [`FairSharePermit`], it has no lifetime
-/// parameter. Dropping it returns the permit and may admit another queued
-/// acquisition.
+/// methods on [`FairShare`]. Unlike [`FairSharePermit`], it owns an [`Arc`] to
+/// the admission controller and has no lifetime parameter. Dropping it returns
+/// the permit and may admit another queued acquisition.
 ///
 /// [`acquire_owned`]: FairShare::acquire_owned
 /// [`try_acquire_owned`]: FairShare::try_acquire_owned
@@ -192,6 +195,7 @@ where
     S: BuildHasher,
 {
     permit: OwnedPrioritySharePermit<K, S>,
+    _admission: Arc<FairShare<K, S>>,
 }
 
 impl<K, S> OwnedFairSharePermit<K, S>
