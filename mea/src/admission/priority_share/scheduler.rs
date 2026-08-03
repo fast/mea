@@ -48,12 +48,20 @@ where
         }
     }
 
-    pub(super) fn total_available_permits(&self) -> usize {
-        self.state.lock().total_available_permits
+    pub(super) fn available_permits(&self, priority: usize) -> usize {
+        self.state.lock().available_for(priority)
     }
 
-    pub(super) fn total_num_waiters(&self) -> usize {
-        self.state.lock().total_num_waiters
+    pub(super) fn num_waiters(&self, priority: usize) -> usize {
+        let state = self.state.lock();
+        debug_assert!(priority < state.admission_limits.len());
+        state
+            .owners
+            .values()
+            .flat_map(|owner| &owner.queues)
+            .filter(|queue| queue.priority == priority)
+            .map(|queue| queue.waiters.len())
+            .sum()
     }
 
     pub(super) fn try_acquire(&self, owner: Arc<K>, priority: usize) -> bool {
@@ -256,10 +264,14 @@ where
     }
 
     fn can_admit(&self, priority: usize) -> bool {
+        self.available_for(priority) > 0
+    }
+
+    fn available_for(&self, priority: usize) -> usize {
         debug_assert!(priority < self.admission_limits.len());
         let total_permits = self.admission_limits[self.admission_limits.len() - 1];
         let held_permits = total_permits - self.total_available_permits;
-        held_permits < self.admission_limits[priority]
+        self.admission_limits[priority].saturating_sub(held_permits)
     }
 
     fn admit(&mut self, owner: Arc<K>) {

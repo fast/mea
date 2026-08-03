@@ -75,6 +75,61 @@ fn returns_priority_bound_handles_that_share_state() {
 }
 
 #[test]
+fn observations_are_scoped_to_each_priority() {
+    let priorities = PriorityShare::new([4, 1]);
+    let low = &priorities[0];
+    let high = &priorities[1];
+
+    assert_eq!(low.available_permits(), 4);
+    assert_eq!(high.available_permits(), 5);
+    assert_eq!(low.num_waiters(), 0);
+    assert_eq!(high.num_waiters(), 0);
+
+    let permits = ["high-0", "high-1", "high-2"].map(|owner| high.try_acquire(owner).unwrap());
+    assert_eq!(low.available_permits(), 1);
+    assert_eq!(high.available_permits(), 2);
+
+    drop(permits);
+    assert_eq!(low.available_permits(), 4);
+    assert_eq!(high.available_permits(), 5);
+}
+
+#[test]
+fn waiter_observations_exclude_assigned_acquisitions() {
+    let priorities = PriorityShare::new([1, 0]);
+    let low = &priorities[0];
+    let high = &priorities[1];
+    let held = low.try_acquire("held").unwrap();
+
+    let low_waiter = low.acquire("low");
+    let mut low_waiter = pin!(low_waiter);
+    assert!(poll_once(low_waiter.as_mut()).is_pending());
+
+    let high_waiter = high.acquire("high");
+    let mut high_waiter = pin!(high_waiter);
+    assert!(poll_once(high_waiter.as_mut()).is_pending());
+    assert_eq!(low.num_waiters(), 1);
+    assert_eq!(high.num_waiters(), 1);
+
+    drop(held);
+    assert_eq!(low.num_waiters(), 1);
+    assert_eq!(high.num_waiters(), 0);
+    let high_permit = match poll_once(high_waiter.as_mut()) {
+        Poll::Ready(permit) => permit,
+        Poll::Pending => panic!("the higher-priority acquisition was assigned"),
+    };
+
+    drop(high_permit);
+    assert_eq!(low.num_waiters(), 0);
+    assert_eq!(high.num_waiters(), 0);
+    let low_permit = match poll_once(low_waiter.as_mut()) {
+        Poll::Ready(permit) => permit,
+        Poll::Pending => panic!("the lower-priority acquisition was assigned"),
+    };
+    drop(low_permit);
+}
+
+#[test]
 fn all_priorities_count_toward_shared_admission_thresholds() {
     let priorities = PriorityShare::new([4, 1]);
     let low = &priorities[0];

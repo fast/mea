@@ -49,6 +49,10 @@ use scheduler::Scheduler;
 /// headroom can remain unused while lower-priority work waits. Priorities with
 /// equal admission limits still differ under contention because the higher one
 /// is admitted first.
+///
+/// Observation methods are scoped to the handle's priority. Available-permit
+/// values from different handles overlap and must not be added together;
+/// waiter counts belong to disjoint priority queues and may be added.
 #[derive(Debug)]
 pub struct PriorityShare<K, S = RandomState>
 where
@@ -99,6 +103,8 @@ where
     ///
     /// assert_eq!(low.priority(), 0);
     /// assert_eq!(high.priority(), 1);
+    /// assert_eq!(low.available_permits(), 2);
+    /// assert_eq!(high.available_permits(), 3);
     /// assert_eq!(low.try_acquire("low".to_owned()).unwrap().priority(), 0);
     /// assert_eq!(high.try_acquire("high".to_owned()).unwrap().priority(), 1);
     /// ```
@@ -165,6 +171,32 @@ where
         self.priority
     }
 
+    /// Returns the number of permits currently available to this priority.
+    ///
+    /// This is the number of additional acquisitions that fit below this
+    /// priority's shared admission limit. A permit assigned at any priority can
+    /// reduce this value. Values from different handles overlap and must not be
+    /// added together. The highest-priority handle reports the total number of
+    /// unassigned permits in the admission family.
+    ///
+    /// A permit assigned to a queued acquisition is no longer available even
+    /// if that acquisition has not been polled again. This method returns an
+    /// instantaneous observation; use [`Self::try_acquire`] to atomically test
+    /// and acquire capacity.
+    pub fn available_permits(&self) -> usize {
+        self.scheduler.available_permits(self.priority)
+    }
+
+    /// Returns the number of acquisitions waiting at this priority.
+    ///
+    /// Waiter counts belong to disjoint priority queues and may be added across
+    /// handles, although separate calls do not form an atomic snapshot. An
+    /// acquisition is no longer counted once assigned a permit, even if its
+    /// future has not been polled again.
+    pub fn num_waiters(&self) -> usize {
+        self.scheduler.num_waiters(self.priority)
+    }
+
     /// Attempts to acquire one permit for `owner` at this handle's priority.
     ///
     /// This method may bypass queued work at lower priorities. It does not
@@ -229,14 +261,6 @@ where
 
     fn release(&self, owner: &K) {
         self.scheduler.release(owner);
-    }
-
-    pub(super) fn available_permits_for_fair_share(&self) -> usize {
-        self.scheduler.total_available_permits()
-    }
-
-    pub(super) fn num_waiters_for_fair_share(&self) -> usize {
-        self.scheduler.total_num_waiters()
     }
 }
 
