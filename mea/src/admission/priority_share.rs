@@ -50,9 +50,8 @@ use scheduler::Scheduler;
 /// equal admission limits still differ under contention because the higher one
 /// is admitted first.
 ///
-/// Observation methods are scoped to the handle's priority. Available-permit
-/// values from different handles overlap and must not be added together;
-/// waiter counts belong to disjoint priority queues and may be added.
+/// Available-permit observations are scoped to the handle's priority. Values
+/// from different handles overlap and must not be added together.
 #[derive(Debug)]
 pub struct PriorityShare<K, S = RandomState>
 where
@@ -185,16 +184,6 @@ where
     /// and acquire capacity.
     pub fn available_permits(&self) -> usize {
         self.scheduler.available_permits(self.priority)
-    }
-
-    /// Returns the number of acquisitions waiting at this priority.
-    ///
-    /// Waiter counts belong to disjoint priority queues and may be added across
-    /// handles, although separate calls do not form an atomic snapshot. An
-    /// acquisition is no longer counted once assigned a permit, even if its
-    /// future has not been polled again.
-    pub fn num_waiters(&self) -> usize {
-        self.scheduler.num_waiters(self.priority)
     }
 
     /// Attempts to acquire one permit for `owner` at this handle's priority.

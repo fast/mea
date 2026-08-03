@@ -90,14 +90,6 @@ where
         self.admission.available_permits()
     }
 
-    /// Returns the number of acquisitions currently waiting for a permit.
-    ///
-    /// An acquisition is no longer counted once it has been assigned a permit,
-    /// even if its future has not yet been polled again.
-    pub fn num_waiters(&self) -> usize {
-        self.admission.num_waiters()
-    }
-
     /// Attempts to acquire one permit for `key` without waiting.
     ///
     /// This method does not bypass queued acquisitions.

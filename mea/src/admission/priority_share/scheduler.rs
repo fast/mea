@@ -52,18 +52,6 @@ where
         self.state.lock().available_for(priority)
     }
 
-    pub(super) fn num_waiters(&self, priority: usize) -> usize {
-        let state = self.state.lock();
-        debug_assert!(priority < state.admission_limits.len());
-        state
-            .owners
-            .values()
-            .flat_map(|owner| &owner.queues)
-            .filter(|queue| queue.priority == priority)
-            .map(|queue| queue.waiters.len())
-            .sum()
-    }
-
     pub(super) fn try_acquire(&self, owner: Arc<K>, priority: usize) -> bool {
         self.state.lock().try_admit(owner, priority)
     }
