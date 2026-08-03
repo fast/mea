@@ -87,7 +87,7 @@ where
     /// A permit already assigned to a queued acquisition counts as held by its
     /// key, even if that acquisition has not yet been polled again.
     pub fn available_permits(&self) -> usize {
-        self.admission.available_permits()
+        self.admission.available_permits_for_fair_share()
     }
 
     /// Returns the number of acquisitions currently waiting for a permit.
@@ -95,7 +95,7 @@ where
     /// An acquisition is no longer counted once it has been assigned a permit,
     /// even if its future has not yet been polled again.
     pub fn num_waiters(&self) -> usize {
-        self.admission.num_waiters()
+        self.admission.num_waiters_for_fair_share()
     }
 
     /// Attempts to acquire one permit for `key` without waiting.

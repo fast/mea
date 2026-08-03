@@ -48,16 +48,8 @@ where
         }
     }
 
-    pub(super) fn available_permits(&self, priority: usize) -> usize {
-        self.state.lock().available_for(priority)
-    }
-
     pub(super) fn total_available_permits(&self) -> usize {
         self.state.lock().total_available_permits
-    }
-
-    pub(super) fn num_waiters(&self, priority: usize) -> usize {
-        self.state.lock().waiters_per_priority[priority]
     }
 
     pub(super) fn total_num_waiters(&self) -> usize {
@@ -93,7 +85,6 @@ where
     admission_limits: Box<[usize]>,
     total_available_permits: usize,
     total_num_waiters: usize,
-    waiters_per_priority: Box<[usize]>,
     next_sequence: u64,
     owners: HashMap<Arc<K>, OwnerState, S>,
     waiters: Slab<Waiter>,
@@ -108,13 +99,11 @@ where
         let total_permits = *admission_limits
             .last()
             .expect("priority-share requires at least one admission limit");
-        let num_priorities = admission_limits.len();
         debug_assert!(total_permits > 0);
         Self {
             admission_limits,
             total_available_permits: total_permits,
             total_num_waiters: 0,
-            waiters_per_priority: vec![0; num_priorities].into_boxed_slice(),
             next_sequence: 0,
             owners: HashMap::with_hasher(hash_builder),
             waiters: Slab::new(),
@@ -150,7 +139,6 @@ where
             owner.queues.push(PriorityQueue::new(priority, waiter));
         }
         self.total_num_waiters += 1;
-        self.waiters_per_priority[priority] += 1;
         waiter
     }
 
@@ -205,7 +193,6 @@ where
         };
 
         self.total_num_waiters -= 1;
-        self.waiters_per_priority[priority] -= 1;
         if remove_owner {
             self.owners.remove(owner);
         }
@@ -235,7 +222,6 @@ where
             owner_state.held_permits += 1;
             self.total_available_permits -= 1;
             self.total_num_waiters -= 1;
-            self.waiters_per_priority[priority] -= 1;
 
             let waiter = &mut self.waiters[waiter];
             waiter.admitted = true;
@@ -270,14 +256,10 @@ where
     }
 
     fn can_admit(&self, priority: usize) -> bool {
-        self.available_for(priority) > 0
-    }
-
-    fn available_for(&self, priority: usize) -> usize {
         debug_assert!(priority < self.admission_limits.len());
         let total_permits = self.admission_limits[self.admission_limits.len() - 1];
         let held_permits = total_permits - self.total_available_permits;
-        self.admission_limits[priority].saturating_sub(held_permits)
+        held_permits < self.admission_limits[priority]
     }
 
     fn admit(&mut self, owner: Arc<K>) {

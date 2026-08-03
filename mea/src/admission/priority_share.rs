@@ -49,10 +49,6 @@ use scheduler::Scheduler;
 /// headroom can remain unused while lower-priority work waits. Priorities with
 /// equal admission limits still differ under contention because the higher one
 /// is admitted first.
-///
-/// Observation methods without a `total_` prefix describe this handle's bound
-/// priority. The `total_` variants describe the entire admission family and
-/// return the same value from every handle in that family.
 #[derive(Debug)]
 pub struct PriorityShare<K, S = RandomState>
 where
@@ -103,9 +99,8 @@ where
     ///
     /// assert_eq!(low.priority(), 0);
     /// assert_eq!(high.priority(), 1);
-    /// assert_eq!(low.available_permits(), 2);
-    /// assert_eq!(high.available_permits(), 3);
-    /// assert_eq!(low.total_available_permits(), 3);
+    /// assert_eq!(low.try_acquire("low".to_owned()).unwrap().priority(), 0);
+    /// assert_eq!(high.try_acquire("high".to_owned()).unwrap().priority(), 1);
     /// ```
     pub fn new<C>(capacity_increments: C) -> Vec<Self>
     where
@@ -168,44 +163,6 @@ where
     /// higher priority.
     pub fn priority(&self) -> usize {
         self.priority
-    }
-
-    /// Returns the number of permits currently available at this priority.
-    ///
-    /// This is the number of additional acquisitions this handle could admit
-    /// before reaching its shared admission limit. It can be smaller than
-    /// [`Self::total_available_permits`] because higher priorities may have
-    /// reserved headroom. Values from different handles overlap and must not be
-    /// added together. A permit assigned to a queued acquisition is no longer
-    /// counted even if that acquisition has not been polled again.
-    pub fn available_permits(&self) -> usize {
-        self.scheduler.available_permits(self.priority)
-    }
-
-    /// Returns the total number of permits not assigned in this family.
-    ///
-    /// Every handle in a family reports the same value. This can be larger than
-    /// [`Self::available_permits`] when this priority cannot use headroom
-    /// reserved for higher priorities.
-    pub fn total_available_permits(&self) -> usize {
-        self.scheduler.total_available_permits()
-    }
-
-    /// Returns the number of acquisitions waiting at this priority.
-    ///
-    /// An acquisition is no longer counted once assigned a permit, even if its
-    /// future has not been polled again.
-    pub fn num_waiters(&self) -> usize {
-        self.scheduler.num_waiters(self.priority)
-    }
-
-    /// Returns the total number of acquisitions waiting across all priorities.
-    ///
-    /// Every handle in a family reports the same value. An acquisition is no
-    /// longer counted once assigned a permit, even if its future has not been
-    /// polled again.
-    pub fn total_num_waiters(&self) -> usize {
-        self.scheduler.total_num_waiters()
     }
 
     /// Attempts to acquire one permit for `owner` at this handle's priority.
@@ -272,6 +229,14 @@ where
 
     fn release(&self, owner: &K) {
         self.scheduler.release(owner);
+    }
+
+    pub(super) fn available_permits_for_fair_share(&self) -> usize {
+        self.scheduler.total_available_permits()
+    }
+
+    pub(super) fn num_waiters_for_fair_share(&self) -> usize {
+        self.scheduler.total_num_waiters()
     }
 }
 
