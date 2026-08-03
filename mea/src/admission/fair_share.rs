@@ -17,7 +17,9 @@ use std::hash::Hash;
 use std::hash::RandomState;
 use std::sync::Arc;
 
-use super::share::Share;
+use super::OwnedPrioritySharePermit;
+use super::PriorityShare;
+use super::PrioritySharePermit;
 
 /// An admission controller that fairly shares a fixed number of permits across keys.
 ///
@@ -33,7 +35,7 @@ where
     K: Eq + Hash,
     S: BuildHasher,
 {
-    share: Share<K, S>,
+    admission: Arc<PriorityShare<K, S>>,
 }
 
 impl<K> FairShare<K, RandomState>
@@ -72,8 +74,11 @@ where
     /// Panics if `permits` is zero.
     pub fn with_hasher(permits: usize, hash_builder: S) -> Self {
         assert!(permits > 0, "FairShare requires at least one permit");
+        let admission = PriorityShare::with_hasher([permits], hash_builder)
+            .pop()
+            .expect("one priority was configured");
         Self {
-            share: Share::new(vec![permits].into_boxed_slice(), hash_builder),
+            admission: Arc::new(admission),
         }
     }
 
@@ -82,7 +87,7 @@ where
     /// A permit already assigned to a queued acquisition counts as held by its
     /// key, even if that acquisition has not yet been polled again.
     pub fn available_permits(&self) -> usize {
-        self.share.available_permits()
+        self.admission.available_permits()
     }
 
     /// Returns the number of acquisitions currently waiting for a permit.
@@ -90,20 +95,16 @@ where
     /// An acquisition is no longer counted once it has been assigned a permit,
     /// even if its future has not yet been polled again.
     pub fn num_waiters(&self) -> usize {
-        self.share.num_waiters()
+        self.admission.num_waiters()
     }
 
     /// Attempts to acquire one permit for `key` without waiting.
     ///
     /// This method does not bypass queued acquisitions.
     pub fn try_acquire(&self, key: K) -> Option<FairSharePermit<'_, K, S>> {
-        let key = Arc::new(key);
-        self.share
-            .try_acquire(key.clone(), 0)
-            .then(|| FairSharePermit {
-                admission: self,
-                key,
-            })
+        self.admission
+            .try_acquire(key)
+            .map(|permit| FairSharePermit { permit })
     }
 
     /// Acquires one permit for `key`.
@@ -114,11 +115,8 @@ where
     /// a permit has already been assigned, cancellation releases it for another
     /// queued acquisition.
     pub async fn acquire(&self, key: K) -> FairSharePermit<'_, K, S> {
-        let key = Arc::new(key);
-        self.share.acquire(key.clone(), 0).await;
         FairSharePermit {
-            admission: self,
-            key,
+            permit: self.admission.acquire(key).await,
         }
     }
 
@@ -127,14 +125,10 @@ where
     /// The admission controller must be wrapped in an [`Arc`] to call this
     /// method.
     pub fn try_acquire_owned(self: Arc<Self>, key: K) -> Option<OwnedFairSharePermit<K, S>> {
-        let key = Arc::new(key);
-        if !self.share.try_acquire(key.clone(), 0) {
-            return None;
-        }
-        Some(OwnedFairSharePermit {
-            admission: self,
-            key,
-        })
+        self.admission
+            .clone()
+            .try_acquire_owned(key)
+            .map(|permit| OwnedFairSharePermit { permit })
     }
 
     /// Acquires one owned permit for `key`.
@@ -146,16 +140,9 @@ where
     ///
     /// This method has the same cancellation behavior as [`Self::acquire`].
     pub async fn acquire_owned(self: Arc<Self>, key: K) -> OwnedFairSharePermit<K, S> {
-        let key = Arc::new(key);
-        self.share.acquire(key.clone(), 0).await;
         OwnedFairSharePermit {
-            admission: self,
-            key,
+            permit: self.admission.clone().acquire_owned(key).await,
         }
-    }
-
-    fn release(&self, key: &K) {
-        self.share.release(key);
     }
 }
 
@@ -174,8 +161,7 @@ where
     K: Eq + Hash,
     S: BuildHasher,
 {
-    admission: &'a FairShare<K, S>,
-    key: Arc<K>,
+    permit: PrioritySharePermit<'a, K, S>,
 }
 
 impl<K, S> FairSharePermit<'_, K, S>
@@ -185,26 +171,16 @@ where
 {
     /// Returns the key associated with this permit.
     pub fn key(&self) -> &K {
-        &self.key
-    }
-}
-
-impl<K, S> Drop for FairSharePermit<'_, K, S>
-where
-    K: Eq + Hash,
-    S: BuildHasher,
-{
-    fn drop(&mut self) {
-        self.admission.release(&self.key);
+        self.permit.key()
     }
 }
 
 /// An owned permit from a [`FairShare`] admission controller.
 ///
 /// This type is created by the [`acquire_owned`] and [`try_acquire_owned`]
-/// methods on [`FairShare`]. Unlike [`FairSharePermit`], it owns an [`Arc`] to
-/// the admission controller and has no lifetime parameter. Dropping it returns
-/// the permit and may admit another queued acquisition.
+/// methods on [`FairShare`]. Unlike [`FairSharePermit`], it has no lifetime
+/// parameter. Dropping it returns the permit and may admit another queued
+/// acquisition.
 ///
 /// [`acquire_owned`]: FairShare::acquire_owned
 /// [`try_acquire_owned`]: FairShare::try_acquire_owned
@@ -215,8 +191,7 @@ where
     K: Eq + Hash,
     S: BuildHasher,
 {
-    admission: Arc<FairShare<K, S>>,
-    key: Arc<K>,
+    permit: OwnedPrioritySharePermit<K, S>,
 }
 
 impl<K, S> OwnedFairSharePermit<K, S>
@@ -226,16 +201,6 @@ where
 {
     /// Returns the key associated with this permit.
     pub fn key(&self) -> &K {
-        &self.key
-    }
-}
-
-impl<K, S> Drop for OwnedFairSharePermit<K, S>
-where
-    K: Eq + Hash,
-    S: BuildHasher,
-{
-    fn drop(&mut self) {
-        self.admission.release(&self.key);
+        self.permit.key()
     }
 }

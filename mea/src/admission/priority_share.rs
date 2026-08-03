@@ -12,60 +12,80 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod scheduler;
+
 use std::hash::BuildHasher;
 use std::hash::Hash;
 use std::hash::RandomState;
 use std::sync::Arc;
 
-use super::share::Share;
+use scheduler::Scheduler;
 
-/// An admission controller that combines strict priorities with fair sharing.
+/// A priority-bound handle in a priority-share admission family.
 ///
-/// Each acquisition belongs to a key and a priority. Priorities are dense
-/// `usize` values starting at zero, and a larger value means a higher priority.
-/// All priorities share one capacity. Configuration entries add capacity from
-/// the lowest to the highest priority, so the admission limit at a priority is
-/// the sum of entries up to and including that priority. Every assigned permit
-/// counts toward this limit, regardless of its priority. Higher priorities can
-/// therefore use reserved headroom that is unavailable to lower priorities.
+/// [`PriorityShare::new`] creates one handle per configured priority, ordered
+/// from lowest to highest. Those handles share one capacity and one scheduler.
+/// A handle keeps its priority when it is moved or cloned, so acquisition
+/// methods do not take a priority argument. Separate constructor calls create
+/// independent admission families.
 ///
-/// When contended, queued acquisitions at a higher priority are admitted before
-/// acquisitions at a lower priority. Within one priority, the key with the
-/// fewest permits currently held is admitted first. Ties are resolved by queue
-/// order.
+/// Configuration entries add capacity from the lowest to the highest priority.
+/// The admission limit at priority `p` is the sum of entries up to and
+/// including `p`, and every assigned permit counts toward that limit regardless
+/// of its priority. For example, `[4, 1]` lets priority 0 enter while fewer than
+/// four permits are assigned and priority 1 while fewer than five are assigned.
+/// A higher priority can therefore use all shared capacity, including headroom
+/// unavailable to lower priorities.
+///
+/// When contended, the highest eligible priority is admitted first. Within
+/// that priority, the owner with the fewest permits currently held across all
+/// priorities is admitted first. Ties are resolved by queue order. The same
+/// owner may acquire and wait at multiple priorities; all of its permits count
+/// toward one fair-share identity.
 ///
 /// Priority only affects admission. An acquisition that has already been
-/// assigned a permit is never revoked for a later, higher-priority acquisition.
-/// Sustained higher-priority demand can therefore starve lower priorities, and
-/// headroom reserved for a higher priority can remain unused while lower work
-/// waits.
-///
-/// A key must use one priority while it has held permits or queued
-/// acquisitions. It may use another priority after all of its permits and
-/// queued acquisitions are gone.
+/// assigned a permit is never revoked for later higher-priority work. Sustained
+/// higher-priority demand can therefore starve lower priorities, and reserved
+/// headroom can remain unused while lower-priority work waits. Priorities with
+/// equal admission limits still differ under contention because the higher one
+/// is admitted first.
 #[derive(Debug)]
 pub struct PriorityShare<K, S = RandomState>
 where
     K: Eq + Hash,
     S: BuildHasher,
 {
-    share: Share<K, S>,
+    scheduler: Arc<Scheduler<K, S>>,
+    priority: usize,
+}
+
+impl<K, S> Clone for PriorityShare<K, S>
+where
+    K: Eq + Hash,
+    S: BuildHasher,
+{
+    fn clone(&self) -> Self {
+        Self {
+            scheduler: self.scheduler.clone(),
+            priority: self.priority,
+        }
+    }
 }
 
 impl<K> PriorityShare<K, RandomState>
 where
     K: Eq + Hash,
 {
-    /// Creates a priority-share admission controller.
+    /// Creates a priority-share admission family.
     ///
-    /// `capacities` lists the additional shared capacity unlocked at each
-    /// priority from lowest to highest. The admission limit for priority `p` is
-    /// the sum of `capacities[0..=p]`. Individual entries may be zero as long as
-    /// the total capacity is nonzero.
+    /// `capacity_increments` lists the additional shared capacity unlocked at
+    /// each priority from lowest to highest. The returned vector contains one
+    /// priority-bound handle for every entry in the same order. Individual
+    /// entries may be zero as long as the total capacity is nonzero.
     ///
     /// # Panics
     ///
-    /// Panics if `capacities` is empty, its total is zero, or its total
+    /// Panics if `capacity_increments` is empty, its total is zero, or its total
     /// overflows `usize`.
     ///
     /// # Examples
@@ -73,16 +93,20 @@ where
     /// ```
     /// use mea::admission::PriorityShare;
     ///
-    /// // Priority 0 can enter while fewer than two permits are assigned.
-    /// // Priority 1 can use one additional permit of reserved headroom.
-    /// let admission = PriorityShare::<String>::new([2, 1]);
-    /// assert_eq!(admission.available_permits(), 3);
+    /// let priorities = PriorityShare::<String>::new([2, 1]);
+    /// let low = &priorities[0];
+    /// let high = &priorities[1];
+    ///
+    /// assert_eq!(low.priority(), 0);
+    /// assert_eq!(high.priority(), 1);
+    /// assert_eq!(low.available_permits(), 3);
+    /// assert_eq!(high.available_permits(), 3);
     /// ```
-    pub fn new<C>(capacities: C) -> Self
+    pub fn new<C>(capacity_increments: C) -> Vec<Self>
     where
         C: AsRef<[usize]>,
     {
-        Self::with_hasher(capacities, RandomState::new())
+        Self::with_hasher(capacity_increments, RandomState::new())
     }
 }
 
@@ -91,29 +115,28 @@ where
     K: Eq + Hash,
     S: BuildHasher,
 {
-    /// Creates a priority-share admission controller with the given hash
-    /// builder.
+    /// Creates a priority-share admission family with the given hash builder.
     ///
-    /// `capacities` has the same meaning as in [`Self::new`].
+    /// `capacity_increments` has the same meaning as in [`Self::new`].
     ///
     /// # Panics
     ///
     /// Panics under the same conditions as [`Self::new`].
-    pub fn with_hasher<C>(capacities: C, hash_builder: S) -> Self
+    pub fn with_hasher<C>(capacity_increments: C, hash_builder: S) -> Vec<Self>
     where
         C: AsRef<[usize]>,
     {
-        let capacities = capacities.as_ref();
+        let capacity_increments = capacity_increments.as_ref();
         assert!(
-            !capacities.is_empty(),
+            !capacity_increments.is_empty(),
             "PriorityShare requires at least one priority"
         );
 
         let mut total_permits = 0usize;
-        let mut admission_limits = Vec::with_capacity(capacities.len());
-        for capacity in capacities {
+        let mut admission_limits = Vec::with_capacity(capacity_increments.len());
+        for increment in capacity_increments {
             total_permits = total_permits
-                .checked_add(*capacity)
+                .checked_add(*increment)
                 .expect("PriorityShare capacity overflow");
             admission_limits.push(total_permits);
         }
@@ -122,132 +145,116 @@ where
             "PriorityShare requires at least one permit"
         );
 
-        Self {
-            share: Share::new(admission_limits.into_boxed_slice(), hash_builder),
-        }
+        let scheduler = Arc::new(Scheduler::new(
+            admission_limits.into_boxed_slice(),
+            hash_builder,
+        ));
+        (0..capacity_increments.len())
+            .map(|priority| Self {
+                scheduler: scheduler.clone(),
+                priority,
+            })
+            .collect()
     }
 
-    /// Returns the total number of permits that have not been assigned.
+    /// Returns the priority bound to this handle.
     ///
-    /// This value can be nonzero while a lower-priority acquisition is waiting
-    /// because the shared usage has reached that priority's admission limit,
-    /// leaving headroom for higher priorities. A permit assigned to a queued
-    /// acquisition is no longer counted even if that acquisition has not yet
-    /// been polled again.
+    /// Priorities are dense zero-based values, and a larger value means a
+    /// higher priority.
+    pub fn priority(&self) -> usize {
+        self.priority
+    }
+
+    /// Returns the total number of permits not assigned in this family.
+    ///
+    /// Every handle in a family reports the same value. It can be nonzero while
+    /// lower-priority work is waiting because shared usage has reached that
+    /// priority's admission limit. A permit assigned to a queued acquisition is
+    /// no longer counted even if that acquisition has not been polled again.
     pub fn available_permits(&self) -> usize {
-        self.share.available_permits()
+        self.scheduler.available_permits()
     }
 
-    /// Returns the total number of acquisitions waiting for a permit.
+    /// Returns the total number of acquisitions waiting in this family.
     ///
-    /// An acquisition is no longer counted once it has been assigned a permit,
-    /// even if its future has not yet been polled again.
+    /// Every handle in a family reports the same value. An acquisition is no
+    /// longer counted once assigned a permit, even if its future has not been
+    /// polled again.
     pub fn num_waiters(&self) -> usize {
-        self.share.num_waiters()
+        self.scheduler.num_waiters()
     }
 
-    /// Attempts to acquire one permit for `key` at `priority` without waiting.
+    /// Attempts to acquire one permit for `owner` at this handle's priority.
     ///
-    /// This method may bypass queued acquisitions at lower priorities. It does
-    /// not bypass a queued acquisition that should be admitted first at the
-    /// same or a higher priority.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `priority` is not configured, or if `key` already has held
-    /// permits or waiters at another priority.
-    pub fn try_acquire(&self, key: K, priority: usize) -> Option<PrioritySharePermit<'_, K, S>> {
-        let key = Arc::new(key);
-        self.share
-            .try_acquire(key.clone(), priority)
+    /// This method may bypass queued work at lower priorities. It does not
+    /// bypass queued work that should be admitted first at the same or a higher
+    /// priority.
+    pub fn try_acquire(&self, owner: K) -> Option<PrioritySharePermit<'_, K, S>> {
+        let owner = Arc::new(owner);
+        self.scheduler
+            .try_acquire(owner.clone(), self.priority)
             .then(|| PrioritySharePermit {
                 admission: self,
-                key,
-                priority,
+                owner,
             })
     }
 
-    /// Acquires one permit for `key` at `priority`.
-    ///
-    /// # Panics
-    ///
-    /// Panics under the same conditions as [`Self::try_acquire`].
+    /// Acquires one permit for `owner` at this handle's priority.
     ///
     /// # Cancel safety
     ///
-    /// Cancelling this method loses the acquisition's place in the queue. If
-    /// a permit has already been assigned, cancellation releases it for another
+    /// Cancelling this method loses the acquisition's place in the queue. If a
+    /// permit has already been assigned, cancellation releases it for another
     /// queued acquisition.
-    pub async fn acquire(&self, key: K, priority: usize) -> PrioritySharePermit<'_, K, S> {
-        let key = Arc::new(key);
-        self.share.acquire(key.clone(), priority).await;
+    pub async fn acquire(&self, owner: K) -> PrioritySharePermit<'_, K, S> {
+        let owner = Arc::new(owner);
+        self.scheduler.acquire(owner.clone(), self.priority).await;
         PrioritySharePermit {
             admission: self,
-            key,
-            priority,
+            owner,
         }
     }
 
-    /// Attempts to acquire one owned permit for `key` at `priority` without
-    /// waiting.
+    /// Attempts to acquire one owned permit for `owner` at this handle's
+    /// priority.
     ///
-    /// The admission controller must be wrapped in an [`Arc`] to call this
-    /// method.
-    ///
-    /// # Panics
-    ///
-    /// Panics under the same conditions as [`Self::try_acquire`].
-    pub fn try_acquire_owned(
-        self: Arc<Self>,
-        key: K,
-        priority: usize,
-    ) -> Option<OwnedPrioritySharePermit<K, S>> {
-        let key = Arc::new(key);
-        if !self.share.try_acquire(key.clone(), priority) {
+    /// The handle must be wrapped in an [`Arc`] to call this method.
+    pub fn try_acquire_owned(self: Arc<Self>, owner: K) -> Option<OwnedPrioritySharePermit<K, S>> {
+        let owner = Arc::new(owner);
+        if !self.scheduler.try_acquire(owner.clone(), self.priority) {
             return None;
         }
         Some(OwnedPrioritySharePermit {
             admission: self,
-            key,
-            priority,
+            owner,
         })
     }
 
-    /// Acquires one owned permit for `key` at `priority`.
+    /// Acquires one owned permit for `owner` at this handle's priority.
     ///
-    /// The admission controller must be wrapped in an [`Arc`] to call this
-    /// method.
-    ///
-    /// # Panics
-    ///
-    /// Panics under the same conditions as [`Self::try_acquire`].
+    /// The handle must be wrapped in an [`Arc`] to call this method.
     ///
     /// # Cancel safety
     ///
     /// This method has the same cancellation behavior as [`Self::acquire`].
-    pub async fn acquire_owned(
-        self: Arc<Self>,
-        key: K,
-        priority: usize,
-    ) -> OwnedPrioritySharePermit<K, S> {
-        let key = Arc::new(key);
-        self.share.acquire(key.clone(), priority).await;
+    pub async fn acquire_owned(self: Arc<Self>, owner: K) -> OwnedPrioritySharePermit<K, S> {
+        let owner = Arc::new(owner);
+        self.scheduler.acquire(owner.clone(), self.priority).await;
         OwnedPrioritySharePermit {
             admission: self,
-            key,
-            priority,
+            owner,
         }
     }
 
-    fn release(&self, key: &K) {
-        self.share.release(key);
+    fn release(&self, owner: &K) {
+        self.scheduler.release(owner);
     }
 }
 
-/// A permit from a [`PriorityShare`] admission controller.
+/// A borrowed permit from a [`PriorityShare`] handle.
 ///
-/// Dropping this permit returns it to the admission controller and may admit a
-/// queued acquisition.
+/// Dropping this permit returns it to the shared admission family and may admit
+/// a queued acquisition.
 #[must_use = "permits are released immediately when dropped"]
 #[derive(Debug)]
 pub struct PrioritySharePermit<'a, K, S = RandomState>
@@ -256,8 +263,7 @@ where
     S: BuildHasher,
 {
     admission: &'a PriorityShare<K, S>,
-    key: Arc<K>,
-    priority: usize,
+    owner: Arc<K>,
 }
 
 impl<K, S> PrioritySharePermit<'_, K, S>
@@ -265,14 +271,14 @@ where
     K: Eq + Hash,
     S: BuildHasher,
 {
-    /// Returns the key associated with this permit.
+    /// Returns the owner associated with this permit.
     pub fn key(&self) -> &K {
-        &self.key
+        &self.owner
     }
 
     /// Returns the priority associated with this permit.
     pub fn priority(&self) -> usize {
-        self.priority
+        self.admission.priority
     }
 }
 
@@ -282,15 +288,15 @@ where
     S: BuildHasher,
 {
     fn drop(&mut self) {
-        self.admission.release(&self.key);
+        self.admission.release(&self.owner);
     }
 }
 
-/// An owned permit from a [`PriorityShare`] admission controller.
+/// An owned permit from a [`PriorityShare`] handle.
 ///
-/// Unlike [`PrioritySharePermit`], this type owns an [`Arc`] to the admission
-/// controller and has no lifetime parameter. Dropping it returns the permit and
-/// may admit a queued acquisition.
+/// Unlike [`PrioritySharePermit`], this type owns an [`Arc`] to its
+/// priority-bound handle and has no lifetime parameter. Dropping it returns the
+/// permit and may admit a queued acquisition.
 #[must_use = "permits are released immediately when dropped"]
 #[derive(Debug)]
 pub struct OwnedPrioritySharePermit<K, S = RandomState>
@@ -299,8 +305,7 @@ where
     S: BuildHasher,
 {
     admission: Arc<PriorityShare<K, S>>,
-    key: Arc<K>,
-    priority: usize,
+    owner: Arc<K>,
 }
 
 impl<K, S> OwnedPrioritySharePermit<K, S>
@@ -308,14 +313,14 @@ where
     K: Eq + Hash,
     S: BuildHasher,
 {
-    /// Returns the key associated with this permit.
+    /// Returns the owner associated with this permit.
     pub fn key(&self) -> &K {
-        &self.key
+        &self.owner
     }
 
     /// Returns the priority associated with this permit.
     pub fn priority(&self) -> usize {
-        self.priority
+        self.admission.priority
     }
 }
 
@@ -325,6 +330,6 @@ where
     S: BuildHasher,
 {
     fn drop(&mut self) {
-        self.admission.release(&self.key);
+        self.admission.release(&self.owner);
     }
 }

@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### New features
 
-* Implement `admission::PriorityShare` to combine shared-capacity priority thresholds with fair sharing among owners at the same priority.
+* Implement `admission::PriorityShare` as priority-bound handles that share capacity thresholds and fair-share owner accounting across priorities.
 
 ### Bug fixes
 

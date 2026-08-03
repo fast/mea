@@ -35,8 +35,8 @@
 //! * [`WaitGroup`]: A synchronization primitive that allows waiting for multiple tasks to complete
 //! * [`admission::FairShare`]: A work-conserving admission policy that fairly shares bounded
 //!   concurrency across keys
-//! * [`admission::PriorityShare`]: An admission policy that combines shared-capacity priority
-//!   thresholds with fair sharing among keys at the same priority
+//! * [`admission::PriorityShare`]: Priority-bound admission handles that combine shared-capacity
+//!   thresholds with fair sharing across keys
 //! * [`atomicbox`]: A safe, owning version of `AtomicPtr` for heap-allocated data.
 //! * [`broadcast`]: A multi-producer, multi-consumer broadcast channel.
 //! * [`mpsc::bounded`]: A multi-producer, single-consumer bounded queue for sending values between
