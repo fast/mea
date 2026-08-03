@@ -55,21 +55,28 @@ fn capacity_overflow_panics() {
 #[test]
 fn returns_priority_bound_handles_that_share_state() {
     let priorities = PriorityShare::new([1, 0, 2]);
+    let expected_available = [1, 1, 3];
 
     assert_eq!(priorities.len(), 3);
     for (priority, admission) in priorities.iter().enumerate() {
         assert_eq!(admission.priority(), priority);
-        assert_eq!(admission.available_permits(), 3);
+        assert_eq!(admission.available_permits(), expected_available[priority]);
+        assert_eq!(admission.total_available_permits(), 3);
         assert_eq!(admission.num_waiters(), 0);
+        assert_eq!(admission.total_num_waiters(), 0);
     }
 
     let high = priorities[2].clone();
     let permit = high.try_acquire("owner").unwrap();
     assert_eq!(permit.priority(), 2);
-    assert_eq!(priorities[0].available_permits(), 2);
+    assert_eq!(priorities[0].available_permits(), 0);
+    assert_eq!(priorities[1].available_permits(), 0);
+    assert_eq!(high.available_permits(), 2);
+    assert_eq!(priorities[0].total_available_permits(), 2);
 
     drop(permit);
-    assert_eq!(priorities[1].available_permits(), 3);
+    assert_eq!(priorities[1].available_permits(), 1);
+    assert_eq!(priorities[1].total_available_permits(), 3);
 }
 
 #[test]
@@ -82,17 +89,20 @@ fn all_priorities_count_toward_shared_admission_thresholds() {
     let low2 = low.try_acquire("low-2").unwrap();
     let high0 = high.try_acquire("high-0").unwrap();
 
-    assert_eq!(low.available_permits(), 1);
+    assert_eq!(low.available_permits(), 0);
     assert!(low.try_acquire("low-3").is_none());
     assert_eq!(high.available_permits(), 1);
+    assert_eq!(low.total_available_permits(), 1);
 
     let high1 = high.try_acquire("high-1").unwrap();
     assert_eq!(high1.priority(), 1);
     assert_eq!(low.available_permits(), 0);
+    assert_eq!(high.total_available_permits(), 0);
     assert!(high.try_acquire("high-2").is_none());
 
     drop((low0, low1, low2, high0, high1));
     assert_eq!(high.available_permits(), 5);
+    assert_eq!(low.available_permits(), 4);
 }
 
 #[test]
@@ -106,6 +116,7 @@ fn higher_priority_can_use_entire_shared_capacity() {
     ];
 
     assert_eq!(high.available_permits(), 0);
+    assert_eq!(high.total_available_permits(), 0);
     assert!(high.try_acquire("high-3").is_none());
 
     drop(permits);
@@ -123,16 +134,21 @@ fn higher_priority_bypasses_queued_lower_priority() {
     let mut low_waiter = pin!(low_waiter);
     assert!(poll_once(low_waiter.as_mut()).is_pending());
     assert_eq!(high.available_permits(), 1);
+    assert_eq!(low.available_permits(), 0);
     assert_eq!(low.num_waiters(), 1);
+    assert_eq!(high.num_waiters(), 0);
+    assert_eq!(high.total_num_waiters(), 1);
 
     let high_permit = high.try_acquire("high").unwrap();
     assert_eq!(high_permit.key(), &"high");
     assert_eq!(high_permit.priority(), 1);
-    assert_eq!(high.num_waiters(), 1);
+    assert_eq!(high.num_waiters(), 0);
+    assert_eq!(high.total_num_waiters(), 1);
 
     drop(low_held);
     assert!(poll_once(low_waiter.as_mut()).is_pending());
-    assert_eq!(low.available_permits(), 1);
+    assert_eq!(low.available_permits(), 0);
+    assert_eq!(low.total_available_permits(), 1);
 
     drop(high_permit);
     let low_permit = match poll_once(low_waiter.as_mut()) {
@@ -216,12 +232,17 @@ fn cancelling_an_assigned_permit_reassigns_it_by_priority() {
     let mut low_waiter = Box::pin(low.acquire("low"));
     assert!(poll_once(low_waiter.as_mut()).is_pending());
     drop(held);
+    assert_eq!(low.total_num_waiters(), 0);
 
     let high_waiter = high.acquire("high");
     let mut high_waiter = pin!(high_waiter);
     assert!(poll_once(high_waiter.as_mut()).is_pending());
+    assert_eq!(high.num_waiters(), 1);
+    assert_eq!(low.total_num_waiters(), 1);
 
     drop(low_waiter);
+    assert_eq!(high.num_waiters(), 0);
+    assert_eq!(high.total_num_waiters(), 0);
     let high_permit = match poll_once(high_waiter.as_mut()) {
         Poll::Ready(permit) => permit,
         Poll::Pending => panic!("cancellation should reassign the permit by priority"),
@@ -286,6 +307,7 @@ fn same_owner_can_acquire_multiple_priorities() {
 
     drop((low_permit, high_permit));
     assert_eq!(high.available_permits(), 2);
+    assert_eq!(low.available_permits(), 1);
 }
 
 #[test]
@@ -333,9 +355,15 @@ fn same_owner_can_wait_at_multiple_priorities() {
     let high_waiter = high.acquire("owner");
     let mut high_waiter = pin!(high_waiter);
     assert!(poll_once(high_waiter.as_mut()).is_pending());
+    assert_eq!(low.num_waiters(), 1);
+    assert_eq!(high.num_waiters(), 1);
+    assert_eq!(low.total_num_waiters(), 2);
 
     drop(held);
     assert!(poll_once(low_waiter.as_mut()).is_pending());
+    assert_eq!(low.num_waiters(), 1);
+    assert_eq!(high.num_waiters(), 0);
+    assert_eq!(high.total_num_waiters(), 1);
     let high_permit = match poll_once(high_waiter.as_mut()) {
         Poll::Ready(permit) => permit,
         Poll::Pending => panic!("the owner's higher-priority queue should be selected"),
@@ -362,8 +390,11 @@ fn cancelling_one_priority_preserves_the_owners_other_queue() {
 
     let mut high_waiter = Box::pin(high.acquire("owner"));
     assert!(poll_once(high_waiter.as_mut()).is_pending());
+    assert_eq!(low.total_num_waiters(), 2);
     drop(high_waiter);
     assert_eq!(low.num_waiters(), 1);
+    assert_eq!(high.num_waiters(), 0);
+    assert_eq!(high.total_num_waiters(), 1);
 
     drop(held);
     let low_permit = match poll_once(low_waiter.as_mut()) {
@@ -415,7 +446,9 @@ fn single_priority_matches_fair_share() {
     assert!(poll_once(fair_a.as_mut()).is_ready());
     assert!(poll_once(priority_a.as_mut()).is_ready());
     assert_eq!(fair.available_permits(), priority.available_permits());
+    assert_eq!(fair.available_permits(), priority.total_available_permits());
     assert_eq!(fair.num_waiters(), priority.num_waiters());
+    assert_eq!(fair.num_waiters(), priority.total_num_waiters());
 }
 
 #[test]
@@ -481,9 +514,16 @@ fn deterministic_events_match_capacity_model() {
             }
 
             assert_eq!(
-                priorities[0].available_permits(),
+                priorities[0].total_available_permits(),
                 total_capacity - held.len()
             );
+            for (priority, admission) in priorities.iter().enumerate() {
+                let admission_limit = capacity_increments[..=priority].iter().sum::<usize>();
+                assert_eq!(
+                    admission.available_permits(),
+                    admission_limit.saturating_sub(held.len())
+                );
+            }
         }
     }
 }
@@ -530,5 +570,8 @@ async fn stress_test_preserves_shared_capacity_limit() {
 
     assert_eq!(active.load(Ordering::SeqCst), 0);
     assert!(max_active.load(Ordering::SeqCst) <= total_capacity);
-    assert_eq!(priorities[0].available_permits(), total_capacity);
+    assert_eq!(priorities[0].available_permits(), 2);
+    assert_eq!(priorities[1].available_permits(), 4);
+    assert_eq!(priorities[2].available_permits(), total_capacity);
+    assert_eq!(priorities[0].total_available_permits(), total_capacity);
 }
