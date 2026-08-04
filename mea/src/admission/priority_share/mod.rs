@@ -13,6 +13,8 @@
 // limitations under the License.
 
 mod scheduler;
+#[cfg(test)]
+mod tests;
 
 use std::hash::BuildHasher;
 use std::hash::Hash;

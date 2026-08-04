@@ -24,8 +24,8 @@ use std::task::Context;
 use std::task::Poll;
 use std::task::Waker;
 
-use super::FairShare;
 use super::PriorityShare;
+use crate::admission::FairShare;
 
 fn poll_once<F>(future: Pin<&mut F>) -> Poll<F::Output>
 where

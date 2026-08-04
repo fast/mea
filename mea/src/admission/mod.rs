@@ -31,10 +31,6 @@
 
 mod fair_share;
 mod priority_share;
-#[cfg(test)]
-mod priority_share_tests;
-#[cfg(test)]
-mod tests;
 
 pub use fair_share::FairShare;
 pub use fair_share::FairSharePermit;
