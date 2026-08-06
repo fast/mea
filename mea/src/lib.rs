@@ -35,6 +35,8 @@
 //! * [`WaitGroup`]: A synchronization primitive that allows waiting for multiple tasks to complete
 //! * [`admission::FairShare`]: A work-conserving admission policy that fairly shares bounded
 //!   concurrency across keys
+//! * [`admission::PriorityShare`]: Priority-bound admission handles that combine shared-capacity
+//!   thresholds with fair sharing across keys
 //! * [`atomicbox`]: A safe, owning version of `AtomicPtr` for heap-allocated data.
 //! * [`broadcast`]: A multi-producer, multi-consumer broadcast channel.
 //! * [`mpsc::bounded`]: A multi-producer, single-consumer bounded queue for sending values between
@@ -103,6 +105,9 @@ mod tests {
     use crate::admission::FairShare;
     use crate::admission::FairSharePermit;
     use crate::admission::OwnedFairSharePermit;
+    use crate::admission::OwnedPrioritySharePermit;
+    use crate::admission::PriorityShare;
+    use crate::admission::PrioritySharePermit;
     use crate::barrier::Barrier;
     use crate::broadcast;
     use crate::condvar::Condvar;
@@ -132,6 +137,9 @@ mod tests {
         do_assert_send_and_sync::<FairShare<String>>();
         do_assert_send_and_sync::<FairSharePermit<'_, String>>();
         do_assert_send_and_sync::<OwnedFairSharePermit<String>>();
+        do_assert_send_and_sync::<PriorityShare<String>>();
+        do_assert_send_and_sync::<PrioritySharePermit<'_, String>>();
+        do_assert_send_and_sync::<OwnedPrioritySharePermit<String>>();
         do_assert_send_and_sync::<Barrier>();
         do_assert_send_and_sync::<Condvar>();
         do_assert_send_and_sync::<Once>();
@@ -177,6 +185,9 @@ mod tests {
         do_assert_unpin::<FairShare<String>>();
         do_assert_unpin::<FairSharePermit<'_, String>>();
         do_assert_unpin::<OwnedFairSharePermit<String>>();
+        do_assert_unpin::<PriorityShare<String>>();
+        do_assert_unpin::<PrioritySharePermit<'_, String>>();
+        do_assert_unpin::<OwnedPrioritySharePermit<String>>();
         do_assert_unpin::<Barrier>();
         do_assert_unpin::<Condvar>();
         do_assert_unpin::<Latch>();

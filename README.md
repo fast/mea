@@ -33,6 +33,7 @@ MEA is a runtime-agnostic library providing essential synchronization primitives
 * [**Semaphore**](https://docs.rs/mea/*/mea/semaphore/struct.Semaphore.html): A synchronization primitive that controls access to a shared resource.
 * [**WaitGroup**](https://docs.rs/mea/*/mea/waitgroup/struct.WaitGroup.html): A synchronization primitive that allows waiting for multiple tasks to complete.
 * [**admission::FairShare**](https://docs.rs/mea/*/mea/admission/struct.FairShare.html): A work-conserving admission policy that fairly shares bounded concurrency across keys.
+* [**admission::PriorityShare**](https://docs.rs/mea/*/mea/admission/struct.PriorityShare.html): Priority-bound admission handles that combine shared-capacity thresholds with fair sharing across keys.
 * [**atomicbox**](https://docs.rs/mea/*/mea/atomicbox/): A safe, owning version of AtomicPtr for heap-allocated data.
 * [**broadcast**](https://docs.rs/mea/*/mea/broadcast/): A multi-producer, multi-consumer broadcast channel.
 * [**mpsc::bounded**](https://docs.rs/mea/*/mea/mpsc/fn.bounded.html): A multi-producer, single-consumer bounded queue for sending values between asynchronous tasks.
@@ -71,7 +72,7 @@ This project is licensed under [Apache License, Version 2.0](LICENSE).
 
 This crate collects runtime-agnostic synchronization primitives from spare parts:
 
-* **admission::FairShare** is written from scratch to bound global concurrency while balancing held permits across contending keys.
+* **admission::PriorityShare** uses a scheduler written from scratch to bound concurrency while balancing held permits across contending keys; **admission::FairShare** wraps its single-priority form.
 * **Barrier** is inspired by `std::sync::Barrier` and `tokio::sync::Barrier`, with a different implementation based on the internal `WaitSet` primitive.
 * **Condvar** is inspired by `std::sync::Condvar` and `async_std::sync::Condvar`, with a fair FIFO waiter queue and standard non-buffered notification semantics.
 * **Latch** is inspired by [`latches`](https://github.com/mirromutth/latches), with a different implementation based on the internal `CountdownState` primitive. No sync variant is provided, since it can be easily implemented with block_on of any runtime.
